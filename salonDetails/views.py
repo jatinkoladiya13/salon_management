@@ -6,6 +6,11 @@ from salonDetails.serializers import SalonDetailsSerializer, SalonDetailsCreateS
 from rest_framework.permissions import IsAuthenticated
 from utils.pagination import CustomPageNumberPagination
 from rest_framework import filters
+from rest_framework import status
+from utils.permissions import CustomPermission, IsPublicSchemaSuperUser
+from core.constants import *
+import utils.response_handler as rh
+
 # Create your views here.
 
 class SalonDetailView(ModelViewSet):
@@ -25,6 +30,63 @@ class SalonDetailView(ModelViewSet):
     
     def get_permissions(self):
         permission_classes = [IsAuthenticated]
-        return super().get_permissions()
+        if self.request.user.is_authenticated:
+            permission_classes += [IsPublicSchemaSuperUser]
+ 
+            if self.action in ["list", "retrieve"]:
+                permission_classes += [CustomPermission(READ_SALON_DETAILS)]
+            elif self.action == "create":
+                permission_classes += [CustomPermission(CREATE_SALON_DETAILS)]
+            elif self.action in ["update", "partial_update"]:
+                permission_classes += [CustomPermission(UPDATE_SALON_DETAILS)]
+            elif self.action == "destroy":
+                permission_classes += [CustomPermission(DELETE_SALON_DETAILS)]        
 
-   
+        return [permission() for permission in permission_classes]
+    
+    
+    def list(self, request, *args, **kwargs):
+        serializer = super().list(request, *args, **kwargs)
+
+        response = rh.ResponseMsg(
+            data=serializer.data,
+            error=False,
+            msg="All Salon Details GET Successfully",
+        )
+        return Response(response.response, status=status.HTTP_200_OK)
+    
+    def retrieve(self, request, *args, **kwargs):
+        serializer = super().retrieve(request, *args, **kwargs)
+        response = rh.ResponseMsg(
+            data=serializer.data,
+            error=False,
+            msg="Salon Details Fetched Successfully",
+        )
+        return Response(response.response, status=status.HTTP_200_OK)
+    
+    def create(self, request, *args, **kwargs):
+        serializer = super().create(request, *args, **kwargs)
+        response = rh.ResponseMsg(
+            data=serializer.data,
+            error=False,
+            msg="Salon Details created Successfully",
+        )
+        return Response(response.response, status=status.HTTP_200_OK)
+    
+    def update(self, request, *args, **kwargs):
+        serializer = super().update(request, *args, **kwargs)
+        response = rh.ResponseMsg(
+            data=serializer.data,
+            error=False,
+            msg="Salon Details Updated Successfully"
+        )
+        return Response(response.response, status=status.HTTP_200_OK)
+    
+    def destroy(self, request, *args, **kwargs):
+        serializer = super().destroy(request, *args, **kwargs)
+        response = rh.ResponseMsg(
+            data=serializer.data,
+            error=False,
+            msg="Salon Details Deleted Successfully"
+        )
+        return Response(response.response, status=status.HTTP_200_OK)
