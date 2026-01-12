@@ -1,5 +1,5 @@
 from django.contrib import admin
-from salonDetails.models import SalonDetails, SalonOpeingHour
+from salonDetails.models import SalonDetails, SalonOpeningHour
 # Register your models here.
 
 @admin.register(SalonDetails)
@@ -7,4 +7,4 @@ class SalonDetailsAdmin(admin.ModelAdmin):
     list_display = ('id', 'name',)
 
 
-admin.site.register(SalonOpeingHour)
+admin.site.register(SalonOpeningHour)
