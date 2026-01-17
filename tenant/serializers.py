@@ -10,7 +10,7 @@ class TeantSerializer(serializers.ModelSerializer):
 class TenantDomainSerializer(serializers.Serializer):
     tenant_name = serializers.CharField(required=True, max_length=100)
     domain_name = serializers.CharField(required=True, max_length =100)
-    customer  = serializers.IntegerField(required=True)
+    salon  = serializers.IntegerField(required=True)
 
 class UpdateDomainSerializer(serializers.Serializer):
     domain_name = serializers.CharField(required=True, max_length=100)
