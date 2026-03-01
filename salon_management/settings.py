@@ -28,7 +28,7 @@ SECRET_KEY = 'django-insecure-3#kih5cn+fb2k2mshl^*8(@0=m@$p48ug%gq4e3((xmmq_7e^b
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -202,7 +202,7 @@ STRIPE_LIVE_MODE = False
 STRIPE_TEST_PUBLIC_KEY = "pk_test_51SgfN42KmMeI4B6UARTvIrb38iChFDkNrTRNT8oT9sK4TzUWAGx0ZkiCNRgHQEcFNuNcOMqWSTcRajgdW17CscqG00906cKKx4"
 STRIPE_TEST_SECRET_KEY = "sk_test_51SgfN42KmMeI4B6UE1xOXfsFmCP7okkvuJL24PTHPMfTXuxD1RtAUojq1p9kQ313YqrWKDCenmmERYDoWioueFSy00HuQBuJCD"
 
-DJSTRIPE_WEBHOOK_SECRET = ""
+DJSTRIPE_WEBHOOK_SECRET = "whsec_syMhlNwNP4DOywX4j9xZznTARar2vwf5"
 DJSTRIPE_FOREIGN_KEY_TO_FIELD = "id"
 DJSTRIPE_USE_NATIVE_JSONFIELD = True
 

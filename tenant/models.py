@@ -16,7 +16,10 @@ class Tenant(TenantMixin):
     subscription_end_date = models.DateField(blank=True, null=True)
 
     salonDetails = models.OneToOneField(SalonDetails, on_delete=models.CASCADE, related_name="salong_for_tenant", blank=True, null=True)
-   
+    stripe_customer_id = models.CharField(
+        null=True, unique=True, max_length=100
+    )  
+ 
     subscription_status = models.CharField(
         choices=subscription_status_choices, default="inactive", max_length=20
     )
@@ -33,7 +36,7 @@ class Tenant(TenantMixin):
     trial_end_date = models.DateField(blank=True, null=True)
     
     created_on = models.DateField(auto_now_add=True)
-    auto_create_schema = False
+    auto_create_schema = True
     auto_drop_schema = True
 
     def __str__(self):

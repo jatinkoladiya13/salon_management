@@ -6,7 +6,7 @@ from core.models import CustomGroup, RoleBasePermissions, RoleBasePermissionsSta
 
 
 FALSE_PERMISSIONS_FOR_TENANTADMIN = [
-
+    
 ]
 
 class Command(BaseCommand):

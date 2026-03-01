@@ -31,3 +31,6 @@ READ_USERS_ACCOUNT = "read_users_account"
 CREATE_USERS_ACCOUNT = "create_users_account"
 UPDATE_USERS_ACCOUNT = "update_users_account"
 DELETE_USERS_ACCOUNT = "delete_users_account"
+
+# Subscription
+MANAGE_SUBSCRIPTION = "manage_subscription"

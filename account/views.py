@@ -267,9 +267,11 @@ class ForgotPasswordViewSet(ViewSet):
         serializer = ResetForgotPasswordSerializers(data=request.data)
         if serializer.is_valid():
             uid =  urlsafe_base64_decode(request.data.get("uid")).decode()
+
             user = User.objects.filter(id=uid).first()
             if user is None:
-                return BadRequestException("Invalid Link!!!")
+                raise BadRequestException("Invalid Link!!!")
+            
             custom_token_generator = CustomPasswordResetTokenGenerator()
 
             is_valid = custom_token_generator.check_token(
@@ -280,7 +282,7 @@ class ForgotPasswordViewSet(ViewSet):
                 user.set_password(request.data.get("new_password"))
                 user.save()
             else:
-                return BadRequestException("Invalid Link!!!")
+                raise BadRequestException("Invalid Link!!!")
             
             response = rh.ResponseMsg(
                 {}, False, "Password Reset Successfully!!!"
@@ -296,4 +298,3 @@ class ForgotPasswordViewSet(ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
                 data=response.response,
             )
-
