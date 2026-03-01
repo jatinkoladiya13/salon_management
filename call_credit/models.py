@@ -1,5 +1,7 @@
 from django.db import models
 from datetime import timezone
+from django.utils import timezone as dj_timezone
+
 # Create your models here.
 
 
@@ -20,7 +22,7 @@ class CallCredit(models.Model):
         return self.expiry_date < timezone.now().astimezone(timezone.utc).date()
     
     @classmethod
-    def add_all_credits(cls, credit_sec, credit_type, expiry_date):
+    def add_call_credits(cls, credit_sec, credit_type, expiry_date):
         return cls.objects.create(credits_sec=credit_sec, credit_type=credit_type, expiry_date=expiry_date)
 
     @classmethod
@@ -53,7 +55,7 @@ class CallCredit(models.Model):
         return expiry wise credit
         :return:
         """
-        now = timezone.now().astimezone(timezone.utc)
+        now = dj_timezone.now()
         return cls.objects.filter(
             expired=False,
             expiry_date__gte=now.date()
@@ -69,7 +71,7 @@ class CallCredit(models.Model):
         return sum of all credit available
         :return:
         """
-        now = timezone.now().astimezone(timezone.utc)
+        now = dj_timezone.now()
         return cls.objects.filter(expiry_date__gte=now.date(),
                                   expired=False).aggregate(
             total_credits=models.Sum('credits_sec'))['total_credits'] or 0
@@ -80,17 +82,14 @@ class CallCredit(models.Model):
         return last active subscription available min
         :return:
         """
-        now = timezone.now().astimezone(timezone.utc)
+        now = dj_timezone.now()
         filtered_obj = cls.objects.filter(
             expiry_date__gte=now.date(),
             expired=False,
             credit_type='subscription'
         ).order_by('-id').first()
 
-        if filtered_obj is not None:
-            return filtered_obj.credits_sec
-        else:
-            return None
+        return filtered_obj.credits_sec if filtered_obj else 0
 
     class Meta:
         db_table = 'call_credit'
