@@ -1,153 +1,223 @@
-Stripe Integration Guide
+# Stripe Integration Guide
 
-This document explains how Stripe payments work in this project.
+This document explains how **Stripe payments** work in this project.
 
 It covers:
 
-Stripe setup
+- Stripe setup
+- Subscription plans
+- Checkout session creation
+- Webhook handling
+- Credit system
+- Subscription lifecycle
+- Region-based payment methods
+- Example end-to-end flow
 
-Subscription plans
+---
 
-Checkout session creation
+# 1. Stripe Setup
 
-Webhook handling
+## Install Required Packages
 
-Credit system
-
-Subscription lifecycle
-
-Region-based payment methods
-
-Example end-to-end flow
-
-1. Stripe Setup
-Install Required Packages
+```bash
 pip install stripe dj-stripe
-Add to Installed Apps
+```
+
+## Add to Installed Apps
+
+```python
 INSTALLED_APPS = [
     "djstripe",
 ]
-Add Stripe Keys
+```
+
+## Add Stripe Keys
+
+```env
 STRIPE_SECRET_KEY=your_secret_key
 STRIPE_PUBLIC_KEY=your_public_key
 STRIPE_WEBHOOK_SECRET=your_webhook_secret
-2. Stripe Dashboard Setup
+```
 
-Steps:
+---
 
-Create Product
+# 2. Stripe Dashboard Setup
 
-Create Price
+## Steps
 
-Copy required keys
+1. Create Product
+2. Create Price
+3. Copy required keys
 
-Example:
+### Example
 
-Product: Pro Plan
-Price: $29/month
+- **Product:** Pro Plan  
+- **Price:** $29/month  
 
-Sync Stripe data to local database:
+### Sync Stripe Data to Local Database
 
+```bash
 python manage.py djstripe_sync_models Product Price
+```
 
-This syncs Stripe models to Django.
+This command syncs **Stripe models** to the **Django database**.
 
-3. Subscription Plan Model
+---
 
-Create your own subscription plan model.
+# 3. Subscription Plan Model
 
-Example fields:
+Create your own **Subscription Plan model**.
 
-name
-slug
-price (ForeignKey to djstripe Price)
-is_active
-credits_minutes
-interval
-description
+### Example Fields
 
-This allows your system to control plan configuration while Stripe manages billing.
+- `name`
+- `slug`
+- `price` (ForeignKey to `djstripe Price`)
+- `is_active`
+- `credits_minutes`
+- `interval`
+- `description`
 
-4. API Endpoints
-Create Subscription Checkout Session
-POST /checkout/create-checkout-session/
+This allows your **system to control plan configuration**, while **Stripe manages billing**.
 
-Request Body:
+---
 
+# 4. API Endpoints
+
+## Create Subscription Checkout Session
+
+**POST**
+
+```
+/checkout/create-checkout-session/
+```
+
+### Request Body
+
+```json
 {
   "subscription_plan_id": 2,
   "quantity": 1
 }
+```
 
-Purpose:
+### Purpose
 
-Create Stripe checkout session
+- Create Stripe checkout session
+- Start subscription payment
 
-Start subscription payment
+---
 
-Buy Credits (One-Time Payment)
-POST /checkout/buy-credit/
+## Buy Credits (One-Time Payment)
 
-Request Body:
+**POST**
 
+```
+/checkout/buy-credit/
+```
+
+### Request Body
+
+```json
 {
   "price_id": "price_credit_100",
   "quantity": 1
 }
+```
 
-Purpose:
+### Purpose
 
-Purchase extra call credits
+- Purchase extra call credits
+- One-time payment
 
-One-time payment
+---
 
-Webhook Handler
-POST /webhook-handler/stripe/
+## Webhook Handler
+
+**POST**
+
+```
+/webhook-handler/stripe/
+```
 
 Handles Stripe events.
 
-Upgrade Subscription
-POST /subscription/mysubscriptions/upgrade-subscriptions/
+---
 
-Upgrade user plan.
+## Upgrade Subscription
+
+**POST**
+
+```
+/subscription/mysubscriptions/upgrade-subscriptions/
+```
 
 Example:
 
+```
 Basic → Pro
-Cancel Subscription
-POST /subscription/mysubscriptions/cancel-subscription/
+```
 
-Cancel active subscription.
+---
 
-Get Subscription Details
-GET /subscription/mysubscriptions/
+## Cancel Subscription
+
+**POST**
+
+```
+/subscription/mysubscriptions/cancel-subscription/
+```
+
+---
+
+## Get Subscription Details
+
+**GET**
+
+```
+/subscription/mysubscriptions/
+```
 
 Returns:
 
-active plan
+- active plan
+- billing cycle
+- status
 
-billing cycle
+---
 
-status
+## Call Credit History
 
-Call Credit History
-GET /subscription/mysubscriptions/call-credits/
+**GET**
+
+```
+/subscription/mysubscriptions/call-credits/
+```
 
 Returns:
 
-credit usage timeline
+- credit usage timeline
+- credit balance
 
-credit balance
+---
 
-Credit Pricing
-GET /subscription/mysubscriptions/call-credit-pricing/
+## Credit Pricing
+
+**GET**
+
+```
+/subscription/mysubscriptions/call-credit-pricing/
+```
 
 Returns available credit packages.
 
-5. Stripe Checkout Session Creation
+---
 
-Example subscription session:
+# 5. Stripe Checkout Session Creation
 
+### Example Subscription Session
+
+```python
 import stripe
 
 stripe.checkout.Session.create(
@@ -167,18 +237,22 @@ stripe.checkout.Session.create(
         "subscription_plan_id": plan.id
     }
 )
+```
 
-Purpose of metadata:
+### Purpose of Metadata
 
-tenant_id
-subscription_plan_id
+- `tenant_id`
+- `subscription_plan_id`
 
-This helps identify which user purchased the subscription.
+This helps identify **which user purchased the subscription**.
 
-6. Buy Credits Checkout Session
+---
 
-Example:
+# 6. Buy Credits Checkout Session
 
+### Example
+
+```python
 stripe.checkout.Session.create(
     mode="payment",
     line_items=[
@@ -191,30 +265,39 @@ stripe.checkout.Session.create(
     cancel_url=CANCEL_URL,
     automatic_payment_methods={"enabled": True}
 )
+```
 
 Used for:
 
-one-time credit purchase
-7. Stripe Webhook Events
+- One-time credit purchase
 
-Webhook endpoint:
+---
 
+# 7. Stripe Webhook Events
+
+### Webhook Endpoint
+
+```
 POST /webhook-handler/stripe/
+```
 
 Important events to handle.
 
-1. checkout.session.completed
+---
 
-Triggered when payment completes.
+## 1. checkout.session.completed
 
-Purpose:
+Triggered when **payment completes**.
 
-Confirm successful checkout
-Create or activate subscription
-Process one-time credit purchase
+### Purpose
 
-Example logic:
+- Confirm successful checkout
+- Create or activate subscription
+- Process one-time credit purchase
 
+### Example Logic
+
+```python
 if event["type"] == "checkout.session.completed":
 
     session = event["data"]["object"]
@@ -223,18 +306,23 @@ if event["type"] == "checkout.session.completed":
     plan_id = session["metadata"]["subscription_plan_id"]
 
     activate_subscription(tenant_id, plan_id)
-2. invoice.payment_succeeded
+```
 
-Triggered every billing cycle.
+---
 
-Purpose:
+## 2. invoice.payment_succeeded
 
-Confirm recurring payment
-Add monthly credits
-Extend subscription
+Triggered **every billing cycle**.
 
-Example:
+### Purpose
 
+- Confirm recurring payment
+- Add monthly credits
+- Extend subscription
+
+### Example
+
+```python
 if event["type"] == "invoice.payment_succeeded":
 
     invoice = event["data"]["object"]
@@ -246,205 +334,297 @@ if event["type"] == "invoice.payment_succeeded":
         tenant=subscription.tenant,
         credits=subscription.plan.credits_minutes
     )
-3. customer.subscription.deleted
+```
 
-Triggered when subscription is canceled.
+---
 
-Purpose:
+## 3. customer.subscription.deleted
 
-Deactivate subscription
-Stop future billing
+Triggered when **subscription is canceled**.
 
-Example:
+### Purpose
 
+- Deactivate subscription
+- Stop future billing
+
+### Example
+
+```python
 if event["type"] == "customer.subscription.deleted":
     deactivate_subscription(subscription_id)
-8. Middleware Credit Check
+```
 
-Use middleware to prevent usage when credits are exhausted.
+---
 
-Example:
+# 8. Middleware Credit Check
 
+Use middleware to prevent usage when **credits are exhausted**.
+
+### Example
+
+```python
 def check_tenant_credits(request):
 
     tenant = request.tenant
 
     if tenant.available_credits <= 0:
         raise PermissionDenied("No call credits remaining")
+```
 
-Used before API endpoints that consume credits.
+Used before **API endpoints that consume credits**.
 
-9. Region-Based Payment Methods
+---
+
+# 9. Region-Based Payment Methods
 
 Stripe supports different payment methods depending on:
 
-Customer country
-Stripe account country
-Currency
-Enabled payment methods
+- Customer country
+- Stripe account country
+- Currency
+- Enabled payment methods
 
-Example:
+---
 
-India
+## India
 
 Available payment methods may include:
 
-Card
-UPI
-Wallets
-Netbanking
+- Card
+- UPI
+- Wallets
+- Netbanking
 
 UPI apps include:
 
-Google Pay
-
-PhonePe
-
-Paytm
+- Google Pay
+- PhonePe
+- Paytm
 
 Note:
 
-UPI usually supports one-time payments
-Subscriptions usually require cards
-Europe
+- **UPI usually supports one-time payments**
+- **Subscriptions usually require cards**
+
+---
+
+## Europe
 
 Common payment methods:
 
-Card
-SEPA Debit
-iDEAL
-Bancontact
-Klarna
-United States
+- Card
+- SEPA Debit
+- iDEAL
+- Bancontact
+- Klarna
+
+---
+
+## United States
 
 Common payment methods:
 
+- Card
+- ACH Bank Debit
+- Cash App Pay
+- Link
+
+---
+
+# 10. Recommended Payment Strategy
+
+### Subscription Payments
+
+Use:
+
+```
 Card
-ACH Bank Debit
-Cash App Pay
-Link
-10. Recommended Payment Strategy
-Subscription payments → Card
-One-time payments → Card + Local methods
+```
 
-Example:
+### One-Time Payments
 
-India → Card + UPI
-Europe → Card + SEPA
-USA → Card + ACH
+Use:
 
-This improves payment success rates.
+```
+Card + Local Methods
+```
 
-11. Complete Example Flow
+### Example Strategy
 
-Example scenario:
+| Region | Payment Methods |
+|------|------|
+| India | Card + UPI |
+| Europe | Card + SEPA |
+| USA | Card + ACH |
 
-User purchases Pro Plan.
+This improves **payment success rates**.
 
-Plan:
+---
 
-Name: Pro Plan
-Price: $29/month
-Credits: 500 minutes
-Interval: Monthly
-Step 1 — User Selects Plan
+# 11. Complete Example Flow
+
+### Scenario
+
+User purchases **Pro Plan**.
+
+| Plan | Value |
+|-----|-----|
+| Name | Pro Plan |
+| Price | $29/month |
+| Credits | 500 minutes |
+| Interval | Monthly |
+
+---
+
+## Step 1 — User Selects Plan
 
 Frontend sends:
 
+```
 POST /checkout/create-checkout-session/
-Step 2 — Create Checkout Session
+```
+
+---
+
+## Step 2 — Create Checkout Session
 
 Backend creates Stripe session.
 
 Stripe redirects user to checkout.
 
-Step 3 — User Pays on Stripe
+---
+
+## Step 3 — User Pays on Stripe
 
 User completes payment.
 
 Stripe redirects to:
 
+```
 /payment-success
+```
 
-But the real confirmation happens via webhook.
+But the **real confirmation happens via webhook**.
 
-Step 4 — Webhook Trigger
+---
+
+## Step 4 — Webhook Trigger
 
 Stripe sends:
 
+```
 checkout.session.completed
+```
 
 Backend:
 
-activate subscription
-save Stripe subscription ID
-store tenant subscription
-Step 5 — Monthly Billing
+- Activate subscription
+- Save Stripe subscription ID
+- Store tenant subscription
+
+---
+
+## Step 5 — Monthly Billing
 
 Stripe triggers:
 
+```
 invoice.payment_succeeded
+```
 
 Backend:
 
-add monthly credits
-extend billing cycle
+- Add monthly credits
+- Extend billing cycle
 
 Example:
 
+```
 Pro Plan → 500 credits added
-Step 6 — Credit Usage
+```
+
+---
+
+## Step 6 — Credit Usage
 
 User performs calls.
 
 Middleware checks:
 
+```
 tenant credits > 0
+```
 
 Credits are deducted as usage occurs.
 
-Step 7 — Buy Extra Credits
+---
+
+## Step 7 — Buy Extra Credits
 
 User buys additional credits.
 
 Endpoint:
 
+```
 POST /checkout/buy-credit/
+```
 
 Webhook:
 
+```
 checkout.session.completed
+```
 
 Backend:
 
+```
 add purchased credits
-Step 8 — Upgrade Plan
+```
+
+---
+
+## Step 8 — Upgrade Plan
 
 Endpoint:
 
+```
 POST /subscription/mysubscriptions/upgrade-subscriptions/
+```
 
 Stripe handles:
 
-proration billing
-plan change
-Step 9 — Cancel Subscription
+- proration billing
+- plan change
+
+---
+
+## Step 9 — Cancel Subscription
 
 Endpoint:
 
+```
 POST /subscription/mysubscriptions/cancel-subscription/
+```
 
 Stripe triggers:
 
+```
 customer.subscription.deleted
+```
 
 Backend:
 
+```
 mark subscription inactive
+```
 
-Credits remain valid until billing cycle ends.
+Credits remain valid **until billing cycle ends**.
 
-12. Full Flow Summary
+---
+
+# 12. Full Flow Summary
+
+```
 User selects plan
         ↓
 Create checkout session
@@ -462,7 +642,13 @@ Add monthly credits
 Middleware checks credits
         ↓
 User consumes credits
-Final Architecture
+```
+
+---
+
+# Final Architecture
+
+```
 Frontend
    ↓
 Django API
@@ -476,3 +662,4 @@ Subscription Activation
 Credit Allocation
    ↓
 Tenant Credit Middleware
+```
