@@ -12,5 +12,7 @@ urlpatterns = [
     path("refresh_token/", RefreshTokenView.as_view(), name="refresh-token"),
     path("register/", RegisterCustomer.as_view()),
 
+    path("2fa-setup/", Setup2FAView.as_view(), name="2fa-setup"),
+    path("2fa-verify/", Verify2FAView.as_view(), name="2fa-verify"),
 
 ]
