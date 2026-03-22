@@ -319,7 +319,7 @@ Search API (fast response)
 
 ---
 
-## 🚀 Interview One-Liner
+## 🚀 One-Liner
 
 > Elasticsearch is used alongside Django to handle fast, scalable full-text search using inverted indexing, while the database remains the source of truth.
 
