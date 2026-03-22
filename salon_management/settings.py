@@ -60,8 +60,13 @@ TENANT_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    
+    'django_otp',
+    'django_otp.plugins.otp_totp',
+
     'django_celery_beat',
     'django_celery_results',
+
     'account',
     'core',
     'call_credit',

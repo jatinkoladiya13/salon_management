@@ -108,7 +108,9 @@ class BuyCreditView(APIView):
         
         try:
             checkout_session = stripe.checkout.Session.create(
-                payment_method_types = ["card"],
+                payment_method_types = ["card", "upi"],
+                # automatic_payment_methods={"enabled": True},
+            
                 line_items = [
                     {
                         "price": price.id,  # Stripe ID of the Price object
@@ -121,12 +123,13 @@ class BuyCreditView(APIView):
                 customer=stripe_customer_id,
                 metadata=session_data,
                 allow_promotion_codes=True,
+                billing_address_collection='required',
             )
         except Exception as error:
             response = rh.ResponseMsg(
                 {},
                 True,
-                error,
+                str(error),
             )
             return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
 

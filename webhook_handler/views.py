@@ -53,7 +53,7 @@ class StripeWebhookView(APIView):
                             with schema_context(schema_name):
                                 CallCredit.add_call_credits(
                                     quantity * credit_plan.credits_minutes * 60,
-                                    "extra_credit",
+                                    "credits",
                                     validity_date
                                 )
                             logger.info("Extra credits added to tenant: %s", schema_name)    
