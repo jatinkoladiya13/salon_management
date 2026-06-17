@@ -10,7 +10,7 @@ from djstripe.models import Price
 
 from subscription.models import SubscriptionPlan
 from subscription.views import cancel_subscriptions
-from call_credit.models import CallCredit
+# from call_credit.models import CallCredit
 from tenant.models import Tenant
 
 from datetime import datetime, timedelta
@@ -51,11 +51,13 @@ class StripeWebhookView(APIView):
                             validity_date = datetime.utcnow().date() + timedelta(days=validity_days)
                             
                             with schema_context(schema_name):
-                                CallCredit.add_call_credits(
-                                    quantity * credit_plan.credits_minutes * 60,
-                                    "credits",
-                                    validity_date
-                                )
+                                pass
+                                # CallCredit.add_call_credits(
+                                #     quantity * credit_plan.credits_minutes * 60,
+                                #     "credits",
+                                #     validity_date
+                                # )
+                                pass
                             logger.info("Extra credits added to tenant: %s", schema_name)    
                              
                         except Exception as e:
@@ -88,11 +90,12 @@ class StripeWebhookView(APIView):
                     tenant.save()
 
                     with schema_context(schema_name):
-                        CallCredit.add_call_credits(
-                            upgraded_plan.credits_minutes * 60,
-                            "subscription",
-                            expiry_date
-                        )
+                        pass
+                        # CallCredit.add_call_credits(
+                        #     upgraded_plan.credits_minutes * 60,
+                        #     "subscription",
+                        #     expiry_date
+                        # )
 
                     cancel_subscriptions(previous_subscription_id)
                     logger.info("Subscription upgraded for tenant: %s", schema_name)
@@ -116,11 +119,12 @@ class StripeWebhookView(APIView):
                             tenant.save()
 
                             with schema_context(tenant.schema_name):
-                                CallCredit.add_call_credits(
-                                    subscription_plan.credits_minutes * 60,
-                                    "subscription",
-                                    expiry_date
-                                )
+                                pass
+                                # CallCredit.add_call_credits(
+                                #     subscription_plan.credits_minutes * 60,
+                                #     "subscription",
+                                #     expiry_date
+                                # )
 
                             logger.info("Subscription created or renewed for tenant: %s", tenant.schema_name)
                         except Exception as e:

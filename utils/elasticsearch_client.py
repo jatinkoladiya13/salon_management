@@ -11,7 +11,7 @@ es = Elasticsearch(
     retry_on_timeout=True,
     timeout=45,
 )
-print(es.info())
+
 
 # Timeout to allow machine learning model loading and semantic ingestion to complete
 ingestion_timeout=300

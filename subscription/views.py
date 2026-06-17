@@ -18,7 +18,7 @@ from subscription.serializers import (
     SubscriptionPlanTypeGETSerializer,
     SubscriptionPlanTypeCreateUpdateSerializer
 )
-from call_credit.models import CallCredit
+# from call_credit.models import CallCredit
 from core.constants import MANAGE_SUBSCRIPTION
 from utils.permissions import CustomPermission
 from utils.custom_exception import BadRequestException
@@ -128,13 +128,13 @@ class SubscriptionViewSet(ViewSet):
                 if subscription_plan and subscription_plan.interval != "trial"
                 else None
             ),
-            "available_credit_min": CallCredit.current_subscription_available_min()
-            // 60,
-            "extra_credit_min": (
-                CallCredit.available_credits()
-                - CallCredit.current_subscription_available_min()
-            )
-            // 60,
+            # "available_credit_min": CallCredit.current_subscription_available_min()
+            # // 60,
+            # "extra_credit_min": (
+            #     CallCredit.available_credits()
+            #     - CallCredit.current_subscription_available_min()
+            # )
+            # // 60,
             "subscription_plan": {
                 "name": subscription_plan.name,
                 "description": subscription_plan.description,
@@ -160,10 +160,10 @@ class SubscriptionViewSet(ViewSet):
 
         response = rh.ResponseMsg(
             {
-                "call_credits":CallCredit.available_credits(),
-                "credis_credits":CallCredit.all_call_credits().values(
-                    "credit_type","credits_sec", "expiry_date"
-                )
+                # "call_credits":CallCredit.available_credits(),
+                # "credis_credits":CallCredit.all_call_credits().values(
+                #     "credit_type","credits_sec", "expiry_date"
+                # )
             },
             False,
             "Call credits fetched successfully"

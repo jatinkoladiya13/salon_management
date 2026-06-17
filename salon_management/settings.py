@@ -23,17 +23,28 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-3#kih5cn+fb2k2mshl^*8(@0=m@$p48ug%gq4e3((xmmq_7e^b'
+SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', '')
+if CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS = [s.strip() for s in CSRF_TRUSTED_ORIGINS.split(',')]
+
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', '')
+if CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS = [s.strip() for s in CORS_ALLOWED_ORIGINS.split(',')]
+
+CORS_ALLOW_CREDENTIALS = True
+
 
 # Application definition
 
 SHARED_APPS = [
+    'corsheaders',
     'django_tenants',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -69,7 +80,6 @@ TENANT_APPS = [
 
     'account',
     'core',
-    'call_credit',
 ]
 
 INSTALLED_APPS = list(SHARED_APPS) + [
@@ -78,6 +88,7 @@ INSTALLED_APPS = list(SHARED_APPS) + [
 
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     'django_tenants.middleware.main.TenantMainMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -139,12 +150,18 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {
+            'min_length': 8,
+        }
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
     },
     {
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+    {
+        'NAME': 'utils.custom_validators.OneSpecialCharacterValidator',
     },
 ]
 
