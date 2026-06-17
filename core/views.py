@@ -1,4 +1,4 @@
-from rest_framework.mixins import ListModelMixin, CreateModelMixin, UpdateModelMixin, DestroyModelMixin
+from rest_framework.mixins import ListModelMixin, CreateModelMixin, UpdateModelMixin, DestroyModelMixin, RetrieveModelMixin
 from rest_framework.viewsets import GenericViewSet
 from core.serializers import *
 from rest_framework.permissions import IsAuthenticated
@@ -26,7 +26,7 @@ from core.constants import (
 
 # Create your views here.
 
-class Groupview(ListModelMixin, CreateModelMixin, UpdateModelMixin, DestroyModelMixin, GenericViewSet):
+class Groupview(ListModelMixin, CreateModelMixin, UpdateModelMixin, DestroyModelMixin, GenericViewSet, RetrieveModelMixin):
     queryset = CustomGroup.objects.all()
     serializer_class = GroupSerializer
     permission_classes = [IsAuthenticated]

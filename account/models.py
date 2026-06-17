@@ -97,3 +97,8 @@ class User(AbstractUser):
     def save(self, *args, **kwargs):
         self.username = f"{self.first_name} {self.last_name}"
         super(User, self).save(*args, **kwargs)
+
+class TwoFactorAuth(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    secret = models.CharField(max_length=64)
+    is_enabled = models.BooleanField(default=False)        

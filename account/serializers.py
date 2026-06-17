@@ -1,20 +1,25 @@
-from rest_framework import serializers
-from tenant.models import Tenant
-from tenant.views import create_tenant_and_domain
-from account.functions import validate_user_data
-from django.core.exceptions import ValidationError
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from subscription.models.subscription_plan import SubscriptionPlan
-from utils.custom_exception import BadRequestException
-from django.contrib.auth import get_user_model
-from salonDetails.models import SalonDetails
-from django.contrib.auth.password_validation import validate_password
 from rest_framework.exceptions import PermissionDenied, NotFound
-from django.db import transaction
-from decouple import config
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework import serializers
+
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.contrib.auth import get_user_model
+
+from django.core.exceptions import ValidationError
 from django_tenants.utils import schema_context
+from tenant.views import create_tenant_and_domain
+from django.db import transaction
+from tenant.models import Tenant
+
+from subscription.models.subscription_plan import SubscriptionPlan
+from salonDetails.models import SalonDetails
+
 from core.models.group import CustomGroup
-from call_credit.models import CallCredit
+from account.functions import validate_user_data
+from decouple import config
+
+from utils.custom_exception import BadRequestException
 from utils.helpers import is_permission
 
 User = get_user_model()
@@ -35,18 +40,13 @@ class LoginSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         tenant = Tenant.objects.get(schema_name=self.schema_name)
 
-        if tenant.salonDetails and  tenant.schema_name == "public":
-            data["user_data"] = {
-                "id": self.user.id,
-                "username": self.user.username,
-                "email": self.user.email,
-                "role": self.user.get_role,
-            }
-        else:
-            # data = {}
-            data["user_data"]   = {
-                "role": self.user.get_role,
-            } 
+        
+        data["user_data"] = {
+            "id": self.user.id,
+            "username": self.user.username,
+            "email": self.user.email,
+            "role": self.user.get_role,
+        }
             
         with schema_context("public"):
             data["company_logo"] = None
@@ -129,28 +129,11 @@ class NewAccountCreateSerializer(serializers.Serializer):
         return value
     
     def validate_password(self, value):
-        if " " in value:
-            raise serializers.ValidationError(
-                "Password should not contain any space."
-            )
-        
-        if not any(char.isdigit() for char in value):
-            raise serializers.ValidationError(
-                "Password should contain at least one digit."
-            )
-        
-        if not any(char.isupper() for char in value):
-            raise serializers.ValidationError(
-                "Password should contain at least one uppercase."
-            )
-        if not any(char.islower() for char in value):
-            raise serializers.ValidationError(
-                "Password should contain at least one lowercase."
-            )
-        if not any(char in '!@#$%^&*()_+}{":?><,./;' for char in value):
-            raise serializers.ValidationError(
-                "Password should contain at least one special character."
-            )
+        try:
+            validate_password(value)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+
         return value
     
     def validate(self, data):
@@ -166,7 +149,9 @@ class NewAccountCreateSerializer(serializers.Serializer):
     
     def create(self, validated_data):
         with transaction.atomic():
+            
             slug = validated_data.get("organisation_slug")
+            
             salonDetails = SalonDetails.objects.create(
                 name=validated_data.get("organisation_name"),
                 slug = slug,
@@ -178,18 +163,7 @@ class NewAccountCreateSerializer(serializers.Serializer):
                 slug + "." + config("HOST_URI"),
                 salonDetails.id,
             )
-           
-            subscription_plan = SubscriptionPlan.objects.get(
-                slug="trial_subscription", interval="trial"
-            )
-
-            with schema_context(tenant.schema_name):
-                CallCredit.add_all_credits(
-                    subscription_plan.credits_minutes * 60,
-                    "subscription",
-                    tenant.subscription_end_date,
-                )
-
+            
             with schema_context(tenant.schema_name):
                 user = User.objects.create_user(
                     email = validated_data.get("user_email"),

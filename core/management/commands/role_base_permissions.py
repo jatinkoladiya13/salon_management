@@ -81,6 +81,10 @@ PERMISSIONS = [
         "name": CREATE_STAFF_USERS_ACCOUNT_ONLY,
         "text": "create users only which staff than login user",
     },
+    {
+        "name": MANAGE_SUBSCRIPTION,
+        "text": "For manage subscription",
+    },
 ]
 
 class Command(BaseCommand):

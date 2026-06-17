@@ -1,4 +1,27 @@
 
+import pyotp
+import qrcode
+import base64
+from io import BytesIO
+
+
+def generate_secret():
+    return pyotp.random_base32()
+
+def get_totp(secret):
+    return pyotp.TOTP(secret)
+
+def generate_qr_code(username, secret):
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=username,
+        issuer_name="MyApp"
+    )
+
+    qr = qrcode.make(uri)
+    buffer = BytesIO()
+    qr.save(buffer)
+    return base64.b64encode(buffer.getvalue()).decode()
+
 
 def fun_valid_password(value):
 
@@ -17,3 +40,4 @@ def fun_valid_password(value):
     
     if not any(char in '!@#$%^&*()_+}{":?><,./;' for char in value):
         raise "Password should contain at least one special character."
+    

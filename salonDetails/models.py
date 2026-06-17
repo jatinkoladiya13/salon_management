@@ -26,7 +26,7 @@ class SalonDetails(DateMixin, models.Model):
     location_url = models.URLField(null=True, blank=True)
     address = models.CharField(max_length=255, blank=True, null=True)
 
-class SalonOpeingHour(models.Model):
+class SalonOpeningHour(models.Model):
     WEEK_DAYS = (
         ("monday", "Monday"),
         ("tuesday", "Tuesday"),

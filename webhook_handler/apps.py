@@ -1,6 +1,6 @@
 from django.apps import AppConfig
 
 
-class CallCreditConfig(AppConfig):
+class WebhookHandlerConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'call_credit'
+    name = 'webhook_handler'
