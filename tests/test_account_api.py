@@ -16,7 +16,7 @@ from contextlib import contextmanager
 
 from core.constants import TENANTADMIN_GROUP_NAME, TENANTSTAFF_GROUP_NAME, TENANTUSER_GROUP_NAME 
 from core.models import CustomGroup
-from subscription.models.subscription_plan import SubscriptionPlan
+from subscription.models.models import SubscriptionPlan
 from account.custom_token import CustomPasswordResetTokenGenerator
 
 from faker import Faker

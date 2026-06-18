@@ -1,2 +1,0 @@
-from .subscription_plan  import SubscriptionPlan
-from .subscription_plan_type import SubscriptionPlanType

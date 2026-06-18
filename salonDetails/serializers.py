@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from salonDetails.models import SalonDetails, SalonOpeningHour
+from salonDetails.models import SalonDetails
 from tenant.serializers import TeantSerializer
 
 class SalonDetailsSerializer(serializers.ModelSerializer):
@@ -39,17 +39,18 @@ class SalongDetailsRetrieveSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug"]
 
 class SalonOpeningHourSerializer(serializers.ModelSerializer):
-    opening_time = serializers.TimeField(
-        format="%I:%M %p",
-        input_formats=["%I:%M %p", "%H:%M"],
-        required=False
-    )
-    closing_time = serializers.TimeField(
-        format="%I:%M %p",
-        input_formats=["%I:%M %p", "%H:%M"],
-        required=False
-    )
-    class Meta:
-        model = SalonOpeningHour
-        fields = "__all__"
+    pass
+    # opening_time = serializers.TimeField(
+    #     format="%I:%M %p",
+    #     input_formats=["%I:%M %p", "%H:%M"],
+    #     required=False
+    # )
+    # closing_time = serializers.TimeField(
+    #     format="%I:%M %p",
+    #     input_formats=["%I:%M %p", "%H:%M"],
+    #     required=False
+    # )
+    # class Meta:
+    #     model = SalonOpeningHour
+    #     fields = "__all__"
         

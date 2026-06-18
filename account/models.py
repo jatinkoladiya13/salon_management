@@ -4,6 +4,9 @@ from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404
 from core.models.group import CustomGroup
 
+from core.constants import SUPERADMIN_GROUP_NAME
+import uuid
+
 # Create your models here.
 
 class CustomUserManager(BaseUserManager):
@@ -48,6 +51,7 @@ class CustomUserManager(BaseUserManager):
 
 
 class User(AbstractUser):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True, blank=True)
     mobile = models.CharField(max_length=15, unique=True, null=True, blank=True)
     groups = models.ManyToManyField(
@@ -99,6 +103,7 @@ class User(AbstractUser):
         super(User, self).save(*args, **kwargs)
 
 class TwoFactorAuth(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     secret = models.CharField(max_length=64)
     is_enabled = models.BooleanField(default=False)        
