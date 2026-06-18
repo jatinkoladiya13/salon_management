@@ -3,9 +3,10 @@ from .group import CustomGroup
 from .role_base_permissions import RoleBasePermissions
 from django.utils.translation import gettext_lazy  as _
 from salon_management.behaviours import DateMixin
-
+import uuid
 
 class RoleBasePermissionsStatus(DateMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     group = models.ForeignKey(
         CustomGroup, verbose_name=_("Group"), on_delete=models.CASCADE
     )

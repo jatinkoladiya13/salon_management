@@ -1,6 +1,6 @@
 from djstripe.models import Price, Invoice
 from rest_framework import serializers
-from subscription.models import SubscriptionPlan, SubscriptionPlanType
+from subscription.models import SubscriptionPlan
 
 class PriceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -64,19 +64,21 @@ class SubscriptionPlanCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 class SubscriptionPlanTypeGETSerializer(serializers.ModelSerializer):
-    subscription_plans = SubscriptionPlanGetSerializer(
-        read_only=True, many=True
-    )
+    pass
+    # subscription_plans = SubscriptionPlanGetSerializer(
+    #     read_only=True, many=True
+    # )
 
-    class Meta:
-        model = SubscriptionPlanType
-        fields = "__all__"
+    # class Meta:
+    #     model = SubscriptionPlanType
+    #     fields = "__all__"
 
 
 class SubscriptionPlanTypeCreateUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SubscriptionPlanType
-        fields = "__all__"
+    pass
+    # class Meta:
+    #     model = SubscriptionPlanType
+    #     fields = "__all__"
 
-    def to_representation(self, instance):
-        return SubscriptionPlanTypeGETSerializer(instance).data    
+    # def to_representation(self, instance):
+    #     return SubscriptionPlanTypeGETSerializer(instance).data    

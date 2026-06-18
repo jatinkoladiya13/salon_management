@@ -3,9 +3,14 @@ from salon_management.behaviours import DateMixin
 from autoslug import AutoSlugField
 # Create your models here.
 
+import uuid
+
 class SalonDetails(DateMixin, models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
     name = models.CharField(max_length=255, blank=True, null=True)
     slug = AutoSlugField(populate_from="name", unique=True)
+    
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     organization_email = models.EmailField(blank=True, null=True)
 
@@ -15,6 +20,7 @@ class SalonDetails(DateMixin, models.Model):
         null=True,
         blank=True,
     )
+    
     description = models.CharField(max_length=255, blank=True, null=True)
 
     status_choices = (
@@ -25,27 +31,18 @@ class SalonDetails(DateMixin, models.Model):
 
     location_url = models.URLField(null=True, blank=True)
     address = models.CharField(max_length=255, blank=True, null=True)
-
-class SalonOpeningHour(models.Model):
-    WEEK_DAYS = (
-        ("monday", "Monday"),
-        ("tuesday", "Tuesday"),
-        ("wednesday", "Wednesday"),
-        ("thursday", "Thursday"),
-        ("friday", "Friday"),
-        ("saturday", "Saturday"),
-        ("sunday", "Sunday"),
-    )
-
-    salon = models.ForeignKey(SalonDetails, on_delete=models.CASCADE, related_name="opening_hours")
-
-    day  = models.CharField(max_length=10, choices=WEEK_DAYS)
-    opening_time = models.TimeField(null=True, blank=True)
-    closing_time = models.TimeField(null=True, blank=True)
-    is_closed = models.BooleanField(default=False)
-
+    city = models.CharField(max_length=100, blank=True, null=True)
+    state = models.CharField(max_length=100, blank=True, null=True)
+    country = models.CharField(max_length=100, blank=True, null=True)
+    postal_code = models.CharField(max_length=20, blank=True, null=True)
+    
     class Meta:
-        unique_together = ("salon", "day")
+        db_table = "salon_details"
+        verbose_name = "Salon Detail"
+        verbose_name_plural = "Salon Details"
+        ordering = ("id",)
+        indexes = [models.Index(fields=["name"])]
 
-    def __str__(self):
-        return f"{self.salon.name} - {self.day}"
+    def __str__(self) -> str:
+        return self.name if self.name else str(self.id)    
+

@@ -489,59 +489,60 @@ class SubscriptionPlanManageView(viewsets.ModelViewSet):
         return Response(status=status.HTTP_200_OK, data=response.response)
     
 class SubscriptionPlanTypeManageView(viewsets.ModelViewSet):
-    queryset = SubscriptionPlanType.objects.all()
-    serializer_class = SubscriptionPlanTypeGETSerializer
-    permission_classes = [IsPublicSchemaSuperUser]
-    filter_backends = [filters.SearchFilter]
-    pagination_class = CustomPageNumberPagination
-    search_fields = ["plan_type"]
+    pass
+    # queryset = SubscriptionPlanType.objects.all()
+    # serializer_class = SubscriptionPlanTypeGETSerializer
+    # permission_classes = [IsPublicSchemaSuperUser]
+    # filter_backends = [filters.SearchFilter]
+    # pagination_class = CustomPageNumberPagination
+    # search_fields = ["plan_type"]
 
-    def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
-            self.serializer_class = SubscriptionPlanTypeCreateUpdateSerializer
-        return super().get_serializer_class()
+    # def get_serializer_class(self):
+    #     if self.action in ["create", "update", "partial_update"]:
+    #         self.serializer_class = SubscriptionPlanTypeCreateUpdateSerializer
+    #     return super().get_serializer_class()
 
-    def list(self, request, *args, **kwargs):
-        serializer = super().list(request, *args, **kwargs)
-        response = rh.ResponseMsg(
-            serializer.data,
-            False,
-            "All Subscription Plans Type data get Successfully!!!",
-        )
-        return Response(status=status.HTTP_200_OK, data=response.response)
+    # def list(self, request, *args, **kwargs):
+    #     serializer = super().list(request, *args, **kwargs)
+    #     response = rh.ResponseMsg(
+    #         serializer.data,
+    #         False,
+    #         "All Subscription Plans Type data get Successfully!!!",
+    #     )
+    #     return Response(status=status.HTTP_200_OK, data=response.response)
 
-    def retrieve(self, request, *args, **kwargs):
-        serializer = super().retrieve(request, *args, **kwargs)
-        response = rh.ResponseMsg(
-            serializer.data,
-            False,
-            "Subscription Plan Type data retrieve Successfully!!!",
-        )
-        return Response(status=status.HTTP_200_OK, data=response.response)
+    # def retrieve(self, request, *args, **kwargs):
+    #     serializer = super().retrieve(request, *args, **kwargs)
+    #     response = rh.ResponseMsg(
+    #         serializer.data,
+    #         False,
+    #         "Subscription Plan Type data retrieve Successfully!!!",
+    #     )
+    #     return Response(status=status.HTTP_200_OK, data=response.response)
 
-    def create(self, request, *args, **kwargs):
-        serializer = super().create(request, *args, **kwargs)
-        response = rh.ResponseMsg(
-            serializer.data,
-            False,
-            "Subscription Plan Type created Successfully!!!",
-        )
-        return Response(status=status.HTTP_200_OK, data=response.response)
+    # def create(self, request, *args, **kwargs):
+    #     serializer = super().create(request, *args, **kwargs)
+    #     response = rh.ResponseMsg(
+    #         serializer.data,
+    #         False,
+    #         "Subscription Plan Type created Successfully!!!",
+    #     )
+    #     return Response(status=status.HTTP_200_OK, data=response.response)
 
-    def update(self, request, *args, **kwargs):
-        serializer = super().update(request, *args, **kwargs)
-        response = rh.ResponseMsg(
-            serializer.data,
-            False,
-            "Subscription Plan Type updated Successfully!!!",
-        )
-        return Response(status=status.HTTP_200_OK, data=response.response)
+    # def update(self, request, *args, **kwargs):
+    #     serializer = super().update(request, *args, **kwargs)
+    #     response = rh.ResponseMsg(
+    #         serializer.data,
+    #         False,
+    #         "Subscription Plan Type updated Successfully!!!",
+    #     )
+    #     return Response(status=status.HTTP_200_OK, data=response.response)
 
-    def destroy(self, request, *args, **kwargs):
-        super().destroy(request, *args, **kwargs)
-        response = rh.ResponseMsg(
-            {},
-            False,
-            "Subscription Plan Type deleted Successfully!!!",
-        )
-        return Response(status=status.HTTP_200_OK, data=response.response) 
+    # def destroy(self, request, *args, **kwargs):
+    #     super().destroy(request, *args, **kwargs)
+    #     response = rh.ResponseMsg(
+    #         {},
+    #         False,
+    #         "Subscription Plan Type deleted Successfully!!!",
+    #     )
+    #     return Response(status=status.HTTP_200_OK, data=response.response) 

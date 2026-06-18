@@ -10,7 +10,7 @@ router.register("stripe_price_plan", StripePricePlanManageView)
 router.register("invoice", InvoiceViewSet)
 
 router.register("subscription_plan", SubscriptionPlanManageView)
-router.register("subscription_plan_type", SubscriptionPlanTypeManageView)
+# router.register("subscription_plan_type", SubscriptionPlanTypeManageView)
 
 urlpatterns = [
     path("", include(router.urls)),

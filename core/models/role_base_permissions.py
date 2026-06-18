@@ -1,8 +1,10 @@
 from django.db import models
 from salon_management.behaviours import DateMixin
 from django.utils.translation import gettext_lazy as _
+import uuid
 
 class RoleBasePermissions(DateMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(
         verbose_name=_("Name"), max_length=100, unique=True
     )

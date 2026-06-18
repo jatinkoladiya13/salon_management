@@ -12,7 +12,7 @@ from tenant.views import create_tenant_and_domain
 from django.db import transaction
 from tenant.models import Tenant
 
-from subscription.models.subscription_plan import SubscriptionPlan
+# from subscription.models.models import SubscriptionPlan
 from salonDetails.models import SalonDetails
 
 from core.models.group import CustomGroup
