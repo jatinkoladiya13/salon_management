@@ -8,7 +8,7 @@ class Command(BaseCommand):
     help = "Create template schema tenant"
 
     TEMPLATE_SCHEMA = "template_schema"
-    TEMPLATE_DOMAIN = config("HOST_URI", default="localhost")
+    TEMPLATE_DOMAIN = f"template_schema.{config('HOST_URI', default='localhost')}"
 
     def handle(self, *args, **options):
 

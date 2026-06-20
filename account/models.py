@@ -29,6 +29,7 @@ class CustomUserManager(BaseUserManager):
         user.set_password(password)
         user.save(using=self._db)
         for group in groups:
+            print("Adding group to user:", group.name, group.id)
             user.groups.add(get_object_or_404(CustomGroup, id=group.id))
         return user
 

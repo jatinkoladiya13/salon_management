@@ -57,7 +57,7 @@ class Tenant(TenantMixin, DateMixin):
         choices=subscription_status_choices, default="inactive", max_length=20
     )
 
-    auto_create_schema = True
+    auto_create_schema = False
     auto_drop_schema = True
 
     def __str__(self):

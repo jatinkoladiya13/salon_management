@@ -2,6 +2,7 @@ from django.core.management.base import BaseCommand
 from django.db import connection
 from django.db.utils import ProgrammingError
 
+
 class Command(BaseCommand):
     help = 'Create and copy schema in PostgreSQL'
 
@@ -63,4 +64,4 @@ class Command(BaseCommand):
             except ProgrammingError as e:
                 self.stderr.write(self.style.ERROR(f"Error executing SQL: {e}"))
             else:
-                self.stdout.write(self.style.SUCCESS(f"Schema '{new_schema_name}' created and populated successfully from '{old_schema_name}'"))        
+                self.stdout.write(self.style.SUCCESS(f"Schema '{new_schema_name}' created and populated successfully from '{old_schema_name}'"))
