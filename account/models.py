@@ -44,7 +44,7 @@ class CustomUserManager(BaseUserManager):
             raise ValueError(_("Superuser must have is_superuser=True"))
         
         superadmin_group_obj = get_object_or_404(
-            CustomGroup, name__exact="SuperAdmin"
+            CustomGroup, name__exact=SUPERADMIN_GROUP_NAME
         )
 
         return self.create_user(email, password, [superadmin_group_obj], **extra_fields)
