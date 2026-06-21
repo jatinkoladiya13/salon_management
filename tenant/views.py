@@ -26,14 +26,17 @@ def create_tenant_and_domain(tenant_name, domain_name, salonDetails):
         schema_name = tenant_name,
         salonDetails = SalonDetails.objects.get(id=salonDetails) 
     )
+    tenant.auto_create_schema = False
 
+    print("tenant_name:", tenant_name)
     subscription_plan = SubscriptionPlan.objects.get(
-        slug="trial_subscription", interval="trial"
+        plan_type="free", interval="trial"
     )
+
+    print("subscription_plan:", subscription_plan)
 
     tenant.subscription_plan_id = subscription_plan.id
     tenant.subscription_status = "active"
-    tenant.trial_completed = True
     tenant.subscription_end_date = datetime.datetime.now(
         datetime.timezone.utc
     ) + datetime.timedelta(days=7)
@@ -42,9 +45,14 @@ def create_tenant_and_domain(tenant_name, domain_name, salonDetails):
     domain = Domain(tenant=tenant, domain=domain_name)
     domain.save()
 
-    # call_command("role_base_permissions", tenant.schema_name)
-    # call_command("create_superadmin_group", tenant.schema_name)
+    print("Tenant and Domain created successfully.")
+    print("schema_name:", tenant.schema_name)
+
     call_command("create_new_schema", tenant.schema_name)
+    # call_command("role_base_permissions", tenant.schema_name)
+    # call_command("create_tenantadmin_group", tenant.schema_name)
+    # call_command("create_staff_group", tenant.schema_name)
+    # call_command("create_user_group", tenant.schema_name)
     return tenant
 
 class TenantViewSet(ModelViewSet):

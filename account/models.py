@@ -29,6 +29,7 @@ class CustomUserManager(BaseUserManager):
         user.set_password(password)
         user.save(using=self._db)
         for group in groups:
+            print("Adding group to user:", group.name, group.id)
             user.groups.add(get_object_or_404(CustomGroup, id=group.id))
         return user
 
@@ -44,7 +45,7 @@ class CustomUserManager(BaseUserManager):
             raise ValueError(_("Superuser must have is_superuser=True"))
         
         superadmin_group_obj = get_object_or_404(
-            CustomGroup, name__exact="SuperAdmin"
+            CustomGroup, name__exact=SUPERADMIN_GROUP_NAME
         )
 
         return self.create_user(email, password, [superadmin_group_obj], **extra_fields)

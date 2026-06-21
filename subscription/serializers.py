@@ -1,36 +1,48 @@
-from djstripe.models import Price, Invoice
+from djstripe.models import  Product, Price, Invoice
 from rest_framework import serializers
 from subscription.models import SubscriptionPlan
 
 class PriceSerializer(serializers.ModelSerializer):
+    amount = serializers.SerializerMethodField()
+
     class Meta:
         model = Price
-        fields = (
-            "djstripe_id",
+        fields = [
             "id",
-            "livemode",
-            "active",
+            "djstripe_id",
             "currency",
+            "amount",
             "type",
-            "unit_amount",
-            "unit_amount_decimal",
-            "billing_scheme",
-            "lookup_key",
-            "tiers",
-            "tiers_mode",
-            "transform_quantity",
-            "djstripe_owner_account",
-            "product",
-            # "name",
+            "active",
+        ]
+
+    def get_amount(self, obj):
+        if obj.unit_amount:
+            return obj.unit_amount / 100
+        return 0
+
+    
+class ProductSerializer(serializers.ModelSerializer):
+    prices = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            "id",
+            "djstripe_id",
+            "name",
+            "description",
+            "active",
+            "prices",
+        ]
+
+    def get_prices(self, obj):
+        prices = Price.objects.filter(
+            product=obj,
+            active=True
         )
 
-    def get_name(self, obj):
-        return f"{obj.human_readable_price} for {obj.product.name}"
-    
-class PriceBasicSerializer(PriceSerializer):
-    class Meta:
-        model = Price
-        fields = ("djstripe_id",)  #"name"
+        return PriceSerializer(prices, many=True).data
 
 class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -48,37 +60,17 @@ class InvoiceSerializer(serializers.ModelSerializer):
         )
 
 class SubscriptionPlanGetSerializer(serializers.ModelSerializer):
-    stripe_price = PriceBasicSerializer(read_only=True)        
+    stripe_price = PriceSerializer(read_only=True)        
 
     class Meta:
         model = SubscriptionPlan
         fields = "__all__"
 
 class SubscriptionPlanCreateUpdateSerializer(serializers.ModelSerializer):
+    # stripe_price = serializers.CharField()
     class Meta:
         model = SubscriptionPlan
         fields = "__all__"
 
     def to_representation(self, instance):
         return SubscriptionPlanGetSerializer(instance).data
-
-
-class SubscriptionPlanTypeGETSerializer(serializers.ModelSerializer):
-    pass
-    # subscription_plans = SubscriptionPlanGetSerializer(
-    #     read_only=True, many=True
-    # )
-
-    # class Meta:
-    #     model = SubscriptionPlanType
-    #     fields = "__all__"
-
-
-class SubscriptionPlanTypeCreateUpdateSerializer(serializers.ModelSerializer):
-    pass
-    # class Meta:
-    #     model = SubscriptionPlanType
-    #     fields = "__all__"
-
-    # def to_representation(self, instance):
-    #     return SubscriptionPlanTypeGETSerializer(instance).data    

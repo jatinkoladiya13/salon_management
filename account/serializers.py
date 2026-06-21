@@ -16,6 +16,7 @@ from tenant.models import Tenant
 from salonDetails.models import SalonDetails
 
 from core.models.group import CustomGroup
+from core.constants import TENANTADMIN_GROUP_NAME
 from account.functions import validate_user_data
 from decouple import config
 
@@ -157,6 +158,8 @@ class NewAccountCreateSerializer(serializers.Serializer):
                 slug = slug,
                 status="active",
             )
+
+            print("slug:", slug)
             
             tenant = create_tenant_and_domain(
                 slug,
@@ -165,10 +168,11 @@ class NewAccountCreateSerializer(serializers.Serializer):
             )
             
             with schema_context(tenant.schema_name):
+                group = CustomGroup.objects.get(name=TENANTADMIN_GROUP_NAME)
                 user = User.objects.create_user(
                     email = validated_data.get("user_email"),
                     password = validated_data.get("password"),
-                    groups=[CustomGroup.objects.get(id=1)],
+                    groups=[group],
                     first_name=validated_data.get("user_first_name"),
                     last_name=validated_data.get("user_last_name"),
                     is_active=True,

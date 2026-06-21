@@ -2,7 +2,7 @@ from django.db import models
 from salon_management.behaviours import DateMixin
 import uuid
 
-class SubscriptionPlan(DateMixin, models.Model):
+class   SubscriptionPlan(DateMixin, models.Model):
     INTERVAL_CHOICES = (
         ('month', 'Month'),
         ('year', 'Year'),

@@ -19,11 +19,16 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    
     path("api/account/", include("account.urls")),
     path("api/core/", include("core.urls")),
+    
     path("api/salon/",include("salonDetails.urls")),
+    
     path("api/tenant/", include("tenant.urls")),
+
     path("api/subscription/",include("subscription.urls")),
+    path("api/checkout/",include("checkout.urls")),
     path("api/webhook-handler/", include("webhook_handler.urls")),
 
     path("api/stripe/", include("djstripe.urls", namespace="djstripe")),
