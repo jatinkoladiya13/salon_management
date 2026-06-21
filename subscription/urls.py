@@ -4,15 +4,15 @@ from .views import *
 
 router = DefaultRouter()
 
-router.register(r"mysubscriptions", SubscriptionViewSet, basename="mysubscriptions")
-
-router.register("stripe_price_plan", StripePricePlanManageView)
+router.register("subscription_plan", SubscriptionPlanManageView)
 router.register("invoice", InvoiceViewSet)
 
-router.register("subscription_plan", SubscriptionPlanManageView)
-# router.register("subscription_plan_type", SubscriptionPlanTypeManageView)
-
 urlpatterns = [
+    path("stripe-product-list/", StripeProductListAPIView.as_view(), name="stripe-product-list"),
+
+    path("get-own-subscription/", GetOwnSubscription.as_view(), name="get-own-subscription"), 
+    path("cancel-subscription/",CancelSubscription.as_view(), name="cancel-subscription"),
+    path("upgrade-subscription/", UpgradeSubscriptionPlan.as_view(), name="upgrade-subscription"),
+    
     path("", include(router.urls)),
-    path("check-subscription/", CheckSubscriptions.as_view())
 ]

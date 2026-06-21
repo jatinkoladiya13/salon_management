@@ -40,3 +40,29 @@ class IsTenantSuperAdmin(BasePermission):
             if request.user.get_role == TENANTADMIN_GROUP_NAME:
                 return True
         return False    
+
+
+class IsAdmin(BasePermission):
+    """
+    Allow:
+    1. Public Schema Super User
+    2. Tenant Super Admin
+    """
+
+    def has_permission(self, request, view):
+
+        if not request.user.is_authenticated:
+            return False
+
+        # Public schema superuser
+        if (
+            request.user.is_superuser
+            and request.tenant.schema_name == get_public_schema_name()
+        ):
+            return True
+
+        # Tenant super admin
+        if request.user.get_role == TENANTADMIN_GROUP_NAME:
+            return True
+
+        return False

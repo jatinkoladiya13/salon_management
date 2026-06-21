@@ -1,5 +1,9 @@
 from rest_framework_simplejwt import authentication, exceptions
+
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
+
+from tenant.models import Tenant
 
 class CustomJWTAuthentication(authentication.JWTAuthentication):
     def check_schema_name(self, payload, schema_name):
@@ -14,6 +18,38 @@ class CustomJWTAuthentication(authentication.JWTAuthentication):
             raise exceptions.InvalidToken(
                 _("Token is invalid"), code="token_not_valid"
             )
+        
+        try:
+
+            tenant = Tenant.objects.select_related(
+                "subscription_plan"
+            ).get(
+                schema_name=payload_schema_name
+            )
+
+        except Tenant.DoesNotExist:
+            raise  exceptions.InvalidToken(_("Invalid schema_name"))
+        
+        if schema_name  != "public":
+            # Check subscription plan
+            if not tenant.subscription_plan:
+                raise exceptions.AuthenticationFailed(
+                    _("No subscription plan found. Please subscribe.")
+                )
+
+            # Check subscription status
+            if tenant.subscription_status != "active":
+                raise exceptions.AuthenticationFailed(
+                    _("Subscription is not active.")
+                )
+
+            if (
+                tenant.subscription_end_date
+                and tenant.subscription_end_date < timezone.now().date()
+            ):
+                raise exceptions.AuthenticationFailed(
+                    _("Subscription has expired.")
+                )
 
         return schema_name
 
@@ -119,13 +155,13 @@ class CustomJWTAuthentication(authentication.JWTAuthentication):
 
         
 
-#         try:
+        # try:
 
-#             tenant = Tenant.objects.get(schema_name=payload_schema_name)
+        #     tenant = Tenant.objects.get(schema_name=payload_schema_name)
 
-#         except Tenant.DoesNotExist:
+        # except Tenant.DoesNotExist:
 
-#             raise AuthenticationFailed("Invalid schema_name")
+        #     raise AuthenticationFailed("Invalid schema_name")
 
         
 
