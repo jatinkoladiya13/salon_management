@@ -42,10 +42,10 @@ class CustomJWTAuthentication(authentication.JWTAuthentication):
                 raise exceptions.AuthenticationFailed(
                     _("Subscription is not active.")
                 )
-
+            
             if (
                 tenant.subscription_end_date
-                and tenant.subscription_end_date < timezone.now().date()
+                and tenant.subscription_end_date < timezone.now()
             ):
                 raise exceptions.AuthenticationFailed(
                     _("Subscription has expired.")

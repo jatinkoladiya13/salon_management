@@ -122,6 +122,7 @@ class CheckoutSessionview(APIView):
             "schema_name": request.tenant.schema_name,
             "organisation_id": tenant.stripe_customer_id,
             "user_id": str(request.user.id),
+            "plan_id":str(subscription_plan.id)
         }
 
         expired_time = int(
