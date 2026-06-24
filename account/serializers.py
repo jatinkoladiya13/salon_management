@@ -62,7 +62,7 @@ class NewAccountCreateSerializer(serializers.Serializer):
     user_first_name  = serializers.CharField(max_length=255, required=True)
     user_last_name = serializers.CharField(max_length=255, required=True)
 
-    organisation_name = serializers.CharField(
+    organization_email = serializers.CharField(
         max_length=150, required=True, allow_blank=False
     )
     organisation_email = serializers.EmailField(
@@ -155,6 +155,8 @@ class NewAccountCreateSerializer(serializers.Serializer):
             
             salonDetails = SalonDetails.objects.create(
                 name=validated_data.get("organisation_name"),
+                organization_email=validated_data.get("organization_email"),
+                phone_number=validated_data.get("mobile_number"),
                 slug = slug,
                 status="active",
             )

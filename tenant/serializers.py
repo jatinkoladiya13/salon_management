@@ -1,7 +1,11 @@
 from rest_framework import serializers
 from tenant.models import Tenant, Domain
 
+from subscription.serializers import SubscriptionPlanGetSerializer
+
+
 class TeantSerializer(serializers.ModelSerializer):
+    subscription_plan=SubscriptionPlanGetSerializer(read_only=True)
     class Meta:
         model = Tenant 
         fields = "__all__"

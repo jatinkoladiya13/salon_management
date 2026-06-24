@@ -13,11 +13,10 @@ from subscription.serializers import (
     SubscriptionPlanCreateUpdateSerializer,
 )
 
-# from call_credit.models import CallCredit
-from core.constants import MANAGE_SUBSCRIPTION
 
 from djstripe.models import Product, Price, Invoice
 from tenant.serializers import TeantSerializer
+from djstripe.models import Customer
 from .models import *
 
 from utils.permissions import CustomPermission, IsPublicSchemaSuperUser, IsAdmin
@@ -26,6 +25,7 @@ from utils.custom_exception import BadRequestException
 from utils.permissions import IsPublicSchemaSuperUser
 from .utils import get_active_subscription, cancel_subscriptions, upgrade_subscription
 import utils.response_handler as rh
+import datetime
 import stripe
 
 # Create your views here.
@@ -139,7 +139,7 @@ class GetOwnSubscription(APIView):
         tenant = request.tenant
         subscription_plan = tenant.subscription_plan
 
-        serializer_data = TeantSerializer(subscription_plan)
+        serializer_data = TeantSerializer(tenant)
 
         response = rh.ResponseMsg(
             serializer_data.data,
@@ -158,10 +158,21 @@ class CancelSubscription(APIView):
         tenant = request.tenant
         subscription_plan = tenant.subscription_plan
         subscription_status = tenant.subscription_status
-        stipe_subscription_id = tenant.stipe_subscription_id
+        stipe_subscription_id = tenant.stripe_subscription_id
         stripe_customer_id = tenant.stripe_customer_id
 
         message = None
+
+        if request.tenant.schema_name == "public":
+            response = rh.ResponseMsg(
+                {},
+                True,
+                "This operation is not allowed on the public schema."
+            )
+            return Response(
+                status=status.HTTP_403_FORBIDDEN,
+                data=response.response
+            )
        
         # if subscription plan is trial
         if subscription_plan and subscription_plan.interval == "trial":
@@ -191,10 +202,10 @@ class CancelSubscription(APIView):
         # cancel subscription
         if stipe_subscription_id:
             if cancel_subscriptions(stipe_subscription_id, period_end=True):
-                tenant.subscription_status = "cancelled"
-                tenant.subscription_plan = None
-                tenant.stipe_subscription_id = None
-                tenant.save()
+                # tenant.subscription_status = "cancelled"
+                # tenant.subscription_plan = None
+                # tenant.stripe_subscription_id = None
+                # tenant.save()
                 message = "Subscription cancelled successfully"
             else:
                 raise BadRequestException("Error in cancelling subscription")
@@ -233,7 +244,7 @@ class UpgradeSubscriptionPlan(APIView):
         tenant = request.tenant
         subscription_plan = tenant.subscription_plan
         subscription_status = tenant.subscription_status
-        stipe_subscription_id = tenant.stipe_subscription_id
+        stipe_subscription_id = tenant.stripe_subscription_id
         stripe_customer_id = tenant.stripe_customer_id
 
         upgrade_plan = SubscriptionPlan.objects.get(stripe_price_id=price_id)
@@ -261,7 +272,6 @@ class UpgradeSubscriptionPlan(APIView):
 
         if subscription_plan and subscription_plan.interval != "trial":
             if not upgrade_plan:
-                print("Invalid price id")
                 raise BadRequestException
             elif upgrade_plan.interval != subscription_plan.interval:
                 response = rh.ResponseMsg(
@@ -317,27 +327,44 @@ class UpgradeSubscriptionPlan(APIView):
                 )
                 return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
     
-
 class InvoiceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        CustomPermission(MANAGE_SUBSCRIPTION),
-    ]
+    permission_classes = [IsAdmin]
     pagination_class = CustomPageNumberPagination
     serializer_class = InvoiceSerializer
     queryset = Invoice.objects.all()
 
     def get_queryset(self):
         queryset = super().get_queryset()
+
+        invoices = stripe.Invoice.list(
+            limit=100
+        )
+    
+        for invoice in invoices.auto_paging_iter():
+            Invoice.sync_from_stripe_data(invoice)
+        
         tenant = self.request.tenant
         stripe_customer_id = tenant.stripe_customer_id
+        schema_name = tenant.schema_name
+        
+        if schema_name == "public":
+           
+            stripe_customer_id = self.request.query_params.get("stripe_customer_id")
+            if stripe_customer_id:
+                queryset = queryset.filter(
+                    customer=stripe_customer_id
+                )
+           
+            customer_email = self.request.query_params.get("customer_email")
+            if customer_email:
+                customer_ids = Customer.objects.filter(
+                    email=customer_email
+                ).values_list("id", flat=True)
+                queryset = queryset.filter(
+                    customer_id__in=customer_ids
+                )
 
-        # Apply sripe customer and paid filter
-        queryset = queryset.filter(
-            customer_id=stripe_customer_id, status="paid"
-        )
-
-        # Get start_date and end_date from request query params
+        # Date filtering
         start_date = self.request.query_params.get("start_date")
         end_date = self.request.query_params.get("end_date")
 
@@ -345,14 +372,21 @@ class InvoiceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             start_date = datetime.datetime.strptime(
                 start_date, "%Y-%m-%d"
             ).date()
-            end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
-        else:
-            # Default to the last one year
-            end_date = timezone.now().astimezone(timezone.utc).date()
-            start_date = end_date - datetime.timedelta(days=365)
 
-        # Apply date range filter
-        queryset = queryset.filter(created__date__range=[start_date, end_date])
+            end_date = datetime.datetime.strptime(
+                end_date, "%Y-%m-%d"
+            ).date()
+
+            queryset = queryset.filter(
+                created__date__range=[start_date, end_date]
+            )    
+                
+
+            return queryset
+    
+        queryset = queryset.filter(
+            customer=stripe_customer_id
+        )
 
         return queryset
 
