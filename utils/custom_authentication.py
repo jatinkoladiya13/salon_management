@@ -63,10 +63,16 @@ class CustomJWTAuthentication(authentication.JWTAuthentication):
             return None
 
         validated_token = self.get_validated_token(raw_token)
+        payload_schema_name = validated_token.payload.get("schema_name")
 
-        self.check_schema_name(
-            validated_token.payload, request.tenant.schema_name
-        )
+        if not hasattr(request, "tenant") or request.tenant is None:
+            try:
+                tenant = Tenant.objects.get(schema_name=payload_schema_name)
+            except Tenant.DoesNotExist:
+                raise exceptions.InvalidToken(_("Invalid schema_name"))
+            request.tenant = tenant
+
+        self.check_schema_name(validated_token.payload, request.tenant.schema_name)
 
         return self.get_user(validated_token), validated_token
     

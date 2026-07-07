@@ -1,7 +1,7 @@
 from rest_framework.permissions import BasePermission
 from core.models import RoleBasePermissionsStatus
 from django_tenants.utils import get_public_schema_name
-from core.constants import TENANTADMIN_GROUP_NAME
+from core.constants import TENANTADMIN_GROUP_NAME, TENANTSTAFF_GROUP_NAME
 
 class CustomPermissionBase(BasePermission):
     permission_codename = ""
@@ -66,3 +66,29 @@ class IsAdmin(BasePermission):
             return True
 
         return False
+    
+class IsAdminOrStaff(BasePermission):
+    """
+    Allow:
+    1. Public Schema Super User
+    2. Tenant Super Admin
+    3. Tenant Staff
+    """
+
+    def has_permission(self, request, view):
+
+        if not request.user.is_authenticated:
+            return False
+
+        # Public schema superuser
+        if (
+            request.user.is_superuser
+            and request.tenant.schema_name == get_public_schema_name()
+        ):
+            return True
+
+        # Tenant super admin or staff
+        if request.user.get_role in [TENANTADMIN_GROUP_NAME, TENANTSTAFF_GROUP_NAME]:
+            return True
+
+        return False    

@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from celery.schedules import crontab
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
@@ -44,6 +45,7 @@ CORS_ALLOW_CREDENTIALS = True
 # Application definition
 
 SHARED_APPS = [
+    "daphne",
     'corsheaders',
     'django_tenants',
     'django.contrib.admin',
@@ -65,6 +67,7 @@ SHARED_APPS = [
 ]
 
 TENANT_APPS = [
+    "daphne",
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -80,6 +83,7 @@ TENANT_APPS = [
 
     'account',
     'core',
+    'appointment',
 ]
 
 INSTALLED_APPS = list(SHARED_APPS) + [
@@ -118,6 +122,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'salon_management.wsgi.application'
+ASGI_APPLICATION = 'salon_management.asgi.application'
 
 
 # Database
@@ -249,4 +254,24 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_ENABLE_UTC = True
-CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_BEAT_SCHEDULER = {
+    "create-timeslots-every-day":{
+        "task": "appointment.tasks.create_recurring_timeslots",
+        "schedule": crontab(hour=0, minute=0),
+    },
+    "appointment-reminders": {
+        "task": "appointment.tasks.send_appointment_reminders",
+        "schedule": crontab(minute="*/15"),
+    },
+}
+
+
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [(f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CHANNEL}")]
+        },
+    },
+}
