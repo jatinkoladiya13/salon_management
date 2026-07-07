@@ -31,5 +31,7 @@ urlpatterns = [
     path("api/checkout/",include("checkout.urls")),
     path("api/webhook-handler/", include("webhook_handler.urls")),
 
+    path("api/appointment/", include("appointment.urls")),
+
     path("api/stripe/", include("djstripe.urls", namespace="djstripe")),
 ]

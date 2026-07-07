@@ -52,6 +52,13 @@ class CustomUserManager(BaseUserManager):
 
 
 class User(AbstractUser):
+
+    GENDER_CHOICE = (
+        ("male", "Male"),
+        ("female", "Female"),
+        ("other", "Other"),
+    ) 
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True, blank=True)
     mobile = models.CharField(max_length=15, unique=True, null=True, blank=True)
@@ -71,7 +78,10 @@ class User(AbstractUser):
     is_active = models.BooleanField(default=True)
     is_verify = models.BooleanField(default=False)
 
+    gender = models.CharField(choices=GENDER_CHOICE, max_length=10, default="male")
     date_of_birth = models.DateField(null=True, blank=True)
+
+    address = models.CharField(max_length=255, blank=True, null=True)
 
     objects = CustomUserManager()
 
@@ -92,7 +102,7 @@ class User(AbstractUser):
     def get_role(self):
         group = self.groups.first()
         print(
-            "^^^^^^^^^^^^^",
+            "^^^^^^1^^^^^^^",
             group.name if group else None,
             self.email,
             self.groups.all(),
@@ -100,7 +110,11 @@ class User(AbstractUser):
         return group.name if group else None
     
     def save(self, *args, **kwargs):
-        self.username = f"{self.first_name} {self.last_name}"
+        if not self.username:
+            full_name = " ".join(
+                part for part in [self.first_name, self.last_name] if part
+            ).strip()
+            self.username = full_name or self.email or "user"
         super(User, self).save(*args, **kwargs)
 
 class TwoFactorAuth(models.Model):

@@ -14,6 +14,7 @@ class Command(BaseCommand):
         new_schema_name = kwargs['new_schema_name']
         old_schema_name = 'template_schema'  # Existing schema name
         self.create_and_copy_schema(old_schema_name, new_schema_name)
+        self.reset_sequences(new_schema_name)
 
     def create_and_copy_schema(self, old_schema_name, new_schema_name):
         create_schema_sql = f"CREATE SCHEMA {new_schema_name};"
@@ -65,3 +66,28 @@ class Command(BaseCommand):
                 self.stderr.write(self.style.ERROR(f"Error executing SQL: {e}"))
             else:
                 self.stdout.write(self.style.SUCCESS(f"Schema '{new_schema_name}' created and populated successfully from '{old_schema_name}'"))
+
+    def reset_sequences(self, schema_name):
+        self.stdout.write(self.style.NOTICE(f"Resetting sequences for schema '{schema_name}'"))
+        with connection.cursor() as cursor:
+            # SQL to find all sequences in the new schema and reset them
+            # to the max value of their respective primary key columns.
+            sql = f"""
+            DO $$
+            DECLARE
+                seq_record RECORD;
+            BEGIN
+                FOR seq_record IN
+                    SELECT
+                        'SELECT setval(''' || quote_ident(s.sequence_schema) || '.' || quote_ident(s.sequence_name) || ''', COALESCE(MAX(' || quote_ident(kcu.column_name) || '), 1)) FROM ' || quote_ident(kcu.table_schema) || '.' || quote_ident(kcu.table_name) || ';' AS reset_sql
+                    FROM information_schema.sequences s
+                    JOIN information_schema.table_constraints tc ON tc.constraint_name = s.sequence_name || '_pkey'
+                    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = tc.constraint_name
+                    WHERE s.sequence_schema = '{schema_name}' AND tc.constraint_type = 'PRIMARY KEY'
+                LOOP
+                    EXECUTE seq_record.reset_sql;
+                END LOOP;
+            END $$;
+            """
+            cursor.execute(sql)
+            self.stdout.write(self.style.SUCCESS(f"Successfully reset sequences for schema '{schema_name}'."))

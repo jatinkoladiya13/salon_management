@@ -23,6 +23,7 @@ from core.constants import (
     SUPERADMIN_GROUP_NAME,
     READ_OWN_ACCOUNT_ONLY,
     UPDATE_OWN_ACCOUNT_ONLY,
+    UPDATE_USERS_ACCOUNT,
 )
 from account.utils import generate_secret, generate_qr_code
 from datetime import datetime
@@ -292,9 +293,11 @@ class UserView(ModelViewSet):
                 )
 
         elif self.action in ["update", "partial_update"]:
-            if is_permission(
-                self.request.user.get_role, UPDATE_OWN_ACCOUNT_ONLY
-            ):
+            user_role = self.request.user.get_role
+            can_update_users = is_permission(user_role, UPDATE_USERS_ACCOUNT)
+            can_update_own_only = is_permission(user_role, UPDATE_OWN_ACCOUNT_ONLY)
+
+            if can_update_own_only and not can_update_users:
                 queryset = queryset.filter(
                     id=self.request.user.id
                 )
