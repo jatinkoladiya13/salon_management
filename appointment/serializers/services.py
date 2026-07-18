@@ -2,11 +2,12 @@
 
 from rest_framework import serializers
 from ..models import Services, StaffServices
+from decimal import Decimal
 
 class ServiceSerializer(serializers.ModelSerializer):
     service_name = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
     duration = serializers.IntegerField(required=True, min_value=1)
-    price = serializers.DecimalField(required=True, min_value=0.01, max_digits=10, decimal_places=2)
+    price = serializers.DecimalField(required=True, min_value=Decimal("0.00"), max_digits=10, decimal_places=2)
 
     class Meta:
         model = Services

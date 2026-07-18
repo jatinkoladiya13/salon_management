@@ -84,6 +84,9 @@ TENANT_APPS = [
     'account',
     'core',
     'appointment',
+    'product_sales',
+    'stock_management',
+
 ]
 
 INSTALLED_APPS = list(SHARED_APPS) + [
@@ -187,6 +190,9 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
