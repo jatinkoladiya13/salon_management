@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
@@ -35,21 +37,31 @@ class Invoice(models.Model):
     customer_id = models.CharField(max_length=20, blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True, null=True)
     shipping_address = models.TextField(blank=True, null=True)
+    stripe_checkout_session_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        unique=True,
+        db_index=True,
+    )
 
     invoice_date = models.DateField(auto_now_add=True)
 
-    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    tax = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    tax = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
 
     payment_method = models.CharField(max_length=10, choices=PAYMENT_METHOD, default="card")
     payment_status = models.CharField(
         max_length=50, choices=[("paid", "Paid"), ("unpaid", "Unpaid")], default="unpaid"
     )
-
     
     order_status = models.CharField(max_length=20, choices=ORDER_STATUS, default="pending")
-    
+
+    razorpay_order_id = models.CharField(max_length=100, unique=True, blank=True, null=True)
+    razorpay_payment_id = models.CharField(max_length=100, blank=True, null=True)
+ 
+
     class Meta:
         db_table = "invoice"
         verbose_name = "Invoice"
@@ -71,8 +83,10 @@ class Invoice(models.Model):
             super().delete(*args, **kwargs)
     
     def recalc_total(self):
-        subtotal = sum(item.subtotal for item in self.items.all())
-        self.total_amount = subtotal - self.discount + self.tax
+        subtotal = sum((item.subtotal for item in self.items.all()), Decimal("0.00"))
+        discount = self.discount if isinstance(self.discount, Decimal) else Decimal(str(self.discount))
+        tax = self.tax if isinstance(self.tax, Decimal) else Decimal(str(self.tax))
+        self.total_amount = subtotal - discount + tax
         self.save(update_fields=["total_amount"])
 
 class InvoiceItem(models.Model):
@@ -90,7 +104,7 @@ class InvoiceItem(models.Model):
         related_name="invoice_items",
     )
     quantity = models.PositiveIntegerField(default=1)
-    price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
 
     class Meta:
         db_table = "invoice_item"

@@ -6,7 +6,7 @@ from product_sales.models import CartItem, Product
 class CartItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = CartItem
-        fields = ("id", "product", "    ", "price", "subtotal")
+        fields = ("id", "product", "quantity", "price", "subtotal")
         read_only_fields = ("id", "price", "subtotal")
 
     def validate_quantity(self, value):

@@ -63,7 +63,9 @@ SHARED_APPS = [
     'subscription',
     'account',
     'core',
-    'salonDetails'
+    'salonDetails',
+
+    'payments'
 ]
 
 TENANT_APPS = [
@@ -86,6 +88,8 @@ TENANT_APPS = [
     'appointment',
     'product_sales',
     'stock_management',
+
+    'payments',
 
 ]
 
@@ -227,7 +231,7 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
     "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
     "USER_ID_FIELD": "id",
-    "USER_ID_CLAIM": "user_id",
+    "USER_ID_CLAIM": "user_id", 
     "JTI_CLAIM": "jti",
 }
 

@@ -36,5 +36,7 @@ urlpatterns = [
     path("api/product-sales/", include("product_sales.urls")),
     path("api/stock-management/", include("stock_management.urls")),
 
+    path("api/payments/", include("payments.urls")),
+
     path("api/stripe/", include("djstripe.urls", namespace="djstripe")),
 ]
