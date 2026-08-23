@@ -5,15 +5,21 @@ from django.conf import settings
 from rest_framework.views import Response, APIView
 from rest_framework import permissions, status
 
-from subscription.models import SubscriptionPlan
+from subscription.utils import find_plan_by_price
 from tenant.models import Tenant
 
 from payments.models import PaymentConfiguration, PaymentProvider
+from payments.money import from_minor_units, to_minor_units
 from payments.services.stripe import StripePaymentService
 from payments.services.razorpay import RazorpayPaymentService
 
 
-from product_sales.models import CartItem, Invoice
+from product_sales.models import (
+    CartItem,
+    Invoice,
+    InvoiceItem,
+    build_invoice_number,
+)
 from .serializers import ProductCheckoutSerializer
 
 from utils.permissions import IsAdmin
@@ -80,8 +86,11 @@ class CheckoutSessionview(APIView):
                 status=status.HTTP_400_BAD_REQUEST, data=response.response
             )
         
-        if  (
+        # subscription_plan is nullable; dereferencing .interval without the
+        # guard raised AttributeError for any active tenant without a plan.
+        if (
             request.tenant.subscription_status == "active"
+            and request.tenant.subscription_plan is not None
             and request.tenant.subscription_plan.interval != "trial"
         ):
             response = rh.ResponseMsg(
@@ -93,11 +102,12 @@ class CheckoutSessionview(APIView):
                 status=status.HTTP_400_BAD_REQUEST, data=response.response
             )
         
-        try:
-            subscription_plan = SubscriptionPlan.objects.get(
-                stripe_price_id=price_id
-            )
-        except SubscriptionPlan.DoesNotExist:
+        # Accepts either djstripe's numeric key or the Stripe price string.
+        # Filtering the integer column with "price_123" used to raise
+        # ValueError and surface as a 500.
+        subscription_plan = find_plan_by_price(price_id)
+
+        if subscription_plan is None or subscription_plan.stripe_price is None:
             response = rh.ResponseMsg(
                 {},
                 True,
@@ -107,8 +117,8 @@ class CheckoutSessionview(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
                 data=response.response
             )
-        
-        price = subscription_plan.stripe_price  
+
+        price = subscription_plan.stripe_price
 
         # stripe.api_key = config("STRIPE_SECRET_KEY")
         stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -198,8 +208,8 @@ class ProductCheckoutSessionView(APIView):
                 user=user
             )
         )
-        
-        if cart_items.count() != len(cart_item_ids):
+
+        if cart_items.count() != len(set(cart_item_ids)):
             response = rh.ResponseMsg(
                 {},
                 True,
@@ -208,7 +218,25 @@ class ProductCheckoutSessionView(APIView):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data=response.response
             )
-        
+
+        # Refuse the checkout before taking any money if the stock has gone
+        # since the item was added to the cart.
+        out_of_stock = [
+            cart_item.product.name
+            for cart_item in cart_items
+            if cart_item.quantity > cart_item.product.current_stock
+            or not cart_item.product.is_active
+        ]
+        if out_of_stock:
+            response = rh.ResponseMsg(
+                {"products": out_of_stock},
+                True,
+                "Some products are no longer available in the requested quantity.",
+            )
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST, data=response.response
+            )
+
         payment_config = PaymentConfiguration.objects.filter(is_active=True).first()
         if not payment_config:
             response = rh.ResponseMsg(
@@ -219,11 +247,13 @@ class ProductCheckoutSessionView(APIView):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data=response.response
             )
-        
+
+        currency = payment_config.currency
+
         line_items = [
             {
                 'price_data': {
-                    'currency': payment_config.currency.lower(), # e.g., 'inr'
+                    'currency': currency.lower(), # e.g., 'inr'
                     'product_data': {
                         "name": cart_item.product.name,
                         "metadata": {
@@ -231,11 +261,14 @@ class ProductCheckoutSessionView(APIView):
                             "cart_item_id": str(cart_item.id),
                         },
                     },
-                    'unit_amount': int(cart_item.price),
+                    # Gateways bill in the smallest currency unit. int(price)
+                    # truncated the stored rupee amount, so a 20.50 item was
+                    # charged as 20 paise.
+                    'unit_amount': to_minor_units(cart_item.price, currency),
                 },
                 'quantity': cart_item.quantity,
             }
-          
+
             for cart_item in cart_items
         ]
 
@@ -282,23 +315,39 @@ class ProductCheckoutSessionView(APIView):
             payment_credentials = payment_config.payment_credentials or {}
             public_key = payment_credentials.get("razorpay_key_id")
 
-            invoice_number = f"INV-{timezone.now().strftime('%Y%m%d%H%M%S')}" 
-            invoice = Invoice.objects.create(
-                invoice_number=invoice_number,
-                user=user,
-                phone=user.mobile,
-                shipping_address=user.address,
-                payment_method="card",
-                payment_status="Unpaid",
-                total_amount=Decimal(razorpay_order['amount'] or 0),
-                razorpay_order_id=razorpay_order['id'],
-                order_status="pending",
-                # discount=discount_amount,
-                # tax=tax_amount,
-            )
-            invoice.save()
+            with transaction.atomic():
+                invoice = Invoice.objects.create(
+                    invoice_number=build_invoice_number(),
+                    user=user,
+                    phone=user.mobile,
+                    shipping_address=user.address,
+                    payment_method="card",
+                    # "unpaid" - the model's choices are lowercase, and
+                    # VerifyRazorpayPaymentView compares against "paid".
+                    payment_status="unpaid",
+                    # Razorpay returns paise; the column holds rupees.
+                    total_amount=from_minor_units(
+                        razorpay_order['amount'], currency
+                    ),
+                    razorpay_order_id=razorpay_order['id'],
+                    order_status="pending",
+                )
 
- 
+                # Record what was actually ordered now, while we still know it.
+                # Building the lines later from the user's live cart meant an
+                # item added between checkout and the webhook was shipped
+                # against a total the customer never paid. Creating them here
+                # also reserves the stock for the duration of the payment.
+                for cart_item in cart_items:
+                    InvoiceItem.objects.create(
+                        invoice=invoice,
+                        product=cart_item.product,
+                        quantity=cart_item.quantity,
+                        price=cart_item.price,
+                    )
+
+                invoice.recalc_total()
+
             data = {
                 'razorpay_order_id': razorpay_order['id'],
                 'amount': razorpay_order['amount'],
@@ -317,6 +366,18 @@ class ProductCheckoutSessionView(APIView):
                 "Checkout session created successfully!!!",
             )
             return Response(status=status.HTTP_200_OK, data=response.response)
+
+        # PayPal (and anything added to PaymentProvider later) has no checkout
+        # implementation. Without this the method returned None and Django
+        # raised a 500 instead of telling the caller what is wrong.
+        response = rh.ResponseMsg(
+            {},
+            True,
+            f"Checkout is not supported for the '{payment_config.provider}' provider.",
+        )
+        return Response(
+            status=status.HTTP_400_BAD_REQUEST, data=response.response
+        )
 
 
 class VerifyRazorpayPaymentView(APIView):
@@ -337,10 +398,12 @@ class VerifyRazorpayPaymentView(APIView):
             )
             return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
 
-        invoice  = Invoice.objects.select_for_update().get(
+        # .get() raises DoesNotExist, so the "if not invoice" check below it was
+        # dead code and an unknown order id came back as a 500.
+        invoice = Invoice.objects.select_for_update().filter(
             razorpay_order_id=razorpay_order_id,
-            user=request.user
-        )
+            user=request.user,
+        ).first()
 
         if not invoice:
             response = rh.ResponseMsg(
@@ -348,7 +411,7 @@ class VerifyRazorpayPaymentView(APIView):
                 True,
                 "Invoice not found",
             )
-            return Response(status=status.HTTP_404_NOT_FOUND, data=response.response) 
+            return Response(status=status.HTTP_404_NOT_FOUND, data=response.response)
 
         if invoice.payment_status == "paid":
             response = rh.ResponseMsg(
@@ -358,12 +421,22 @@ class VerifyRazorpayPaymentView(APIView):
             )
             return  Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
 
-        config = PaymentConfiguration.objects.get(
+        # Named payment_config, not config: `config` is decouple's settings
+        # reader imported at module level and shadowing it here is a trap.
+        payment_config = PaymentConfiguration.objects.filter(
             provider=PaymentProvider.RAZORPAY,
             is_active=True
-        )
+        ).first()
 
-        payment_credentials = config.payment_credentials or {}
+        if payment_config is None:
+            response = rh.ResponseMsg(
+                {}, True, "Razorpay is not configured for this salon."
+            )
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST, data=response.response
+            )
+
+        payment_credentials = payment_config.payment_credentials or {}
         public_key = payment_credentials.get("razorpay_key_id")
         secret_key = payment_credentials.get("razorpay_key_secret")
         

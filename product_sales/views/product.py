@@ -9,8 +9,15 @@ from product_sales.models import Product
 from ..serializers import ProductSerializer
 
 from utils.pagination import CustomPageNumberPagination
-from utils.permissions import IsAdmin, IsAdminOrStaff
+from utils.permissions import IsPublicSchemaSuperUser, CustomPermission
 import utils.response_handler as rh
+
+from core.constants import (
+    READ_PRODUCTS,
+    CREATE_PRODUCTS,
+    UPDATE_PRODUCTS,
+    DELETE_PRODUCTS,
+)
 
 
 class ProductViewSet(viewsets.ModelViewSet):
@@ -22,14 +29,26 @@ class ProductViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "description"]
     filterset_fields = ["name", "description", "selling_price", "product_category", "is_active"]
 
-    def get_permission_classes(self):
+    def get_permissions(self):
+        permission_classes = [IsAuthenticated]
+
+        schema_name = self.request.GET.get("schema_name")
+        if schema_name:
+            permission_classes += [IsPublicSchemaSuperUser]
+
         if self.action in ["list", "retrieve"]:
-            return [IsAuthenticated()]
+            permission_classes += [CustomPermission(READ_PRODUCTS)]
+
+        elif self.action == "create":
+            permission_classes += [CustomPermission(CREATE_PRODUCTS)]
+
         elif self.action in ["create", "update", "partial_update"]:
-            return [IsAdminOrStaff()]
+            permission_classes += [CustomPermission(UPDATE_PRODUCTS)]
+
         elif self.action == "destroy":
-            return [IsAdmin()]
-        return super().get_permissions()
+            permission_classes += [CustomPermission(DELETE_PRODUCTS)]
+
+        return [permission() for permission in permission_classes]
 
     def list(self, request, *args, **kwargs):
         serializer = super().list(request, *args, **kwargs)

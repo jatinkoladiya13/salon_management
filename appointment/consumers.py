@@ -1,7 +1,5 @@
-from rest_framework_simplejwt.tokens import AccessToken
-from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.exceptions import AuthenticationFailed, InvalidToken, TokenError
 
-from django.contrib.auth.models import AnonymousUser
 from django_tenants.utils import schema_context
 from django.contrib.auth import get_user_model
 
@@ -9,7 +7,9 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.db import database_sync_to_async
 
 from urllib.parse import parse_qs
-import json
+
+from tenant.models import Domain
+from utils.custom_authentication import CustomJWTAuthentication
 
 
 class NotificationConsumer(AsyncJsonWebsocketConsumer):
@@ -21,24 +21,12 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
             await self.close()
             return
         
-        try:
-            access_token = AccessToken(token)
-
-            user_id = access_token["user_id"]
-            schema_name = access_token.get("schema_name", "public")
-             
-            user = await self.get_user(user_id, schema_name)
-
-            if not user:
-                await self.close()
-                return
-
-            self.user = user 
-            self.schema_name = schema_name
-
-        except (InvalidToken, TokenError):
+        authenticated = await self.authenticate_token(token, self.get_host())
+        if authenticated is None:
             await self.close()
             return
+
+        self.user, self.schema_name = authenticated
     
         self.room_group_name = f"notification_{self.schema_name}_{self.user.id}"
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
@@ -56,13 +44,35 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
             await self.channel_layer.group_discard(
                 self.room_group_name, self.channel_name
             )
-            print(f"WebSocket disconnected for user {self.user.id}")
+
+    def get_host(self):
+        for header_name, header_value in self.scope.get("headers", []):
+            if header_name == b"host":
+                return header_value.decode().split(":", 1)[0].lower()
+        return None
 
     @database_sync_to_async
-    def get_user(self, user_id, schema_name):
-        with schema_context(schema_name):
-            User = get_user_model()
-            return User.objects.filter(id=user_id).first()
+    def authenticate_token(self, token, host):
+        if not host:
+            return None
+
+        try:
+            with schema_context("public"):
+                domain = Domain.objects.select_related("tenant").get(domain=host)
+                tenant = domain.tenant
+
+                authentication = CustomJWTAuthentication()
+                validated_token = authentication.get_validated_token(token)
+                authentication.check_schema_name(
+                    validated_token.payload, tenant.schema_name
+                )
+
+            with schema_context(tenant.schema_name):
+                user = authentication.get_user(validated_token)
+
+            return user, tenant.schema_name
+        except (AuthenticationFailed, Domain.DoesNotExist, InvalidToken, TokenError):
+            return None
         
     async def receive_json(self, content, **kwargs):
         action = content.get("action")
@@ -78,4 +88,3 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
     async def send_notification(self, event):
         # Send message to WebSocket
         await self.send_json(event["data"])
-        print(f"Sent notification to user {self.user.id}")

@@ -1,7 +1,6 @@
 from django_tenants.utils import schema_context
 from django.conf import settings
 from datetime import timedelta
-from decimal import Decimal
 from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
@@ -13,11 +12,12 @@ from rest_framework.permissions import AllowAny
 from rest_framework import status
 
 from product_sales.models import Product
-from product_sales.models import Invoice, InvoiceItem
+from product_sales.models import Invoice, InvoiceItem, build_invoice_number
 from product_sales.models import CartItem
 
 
 from payments.models import PaymentConfiguration
+from payments.money import from_minor_units
 
 from subscription.models import SubscriptionPlan
 from tenant.models import Tenant
@@ -25,7 +25,6 @@ from tenant.models import Tenant
 import utils.response_handler as rh 
 
 import logging
-import json
 
 import stripe
 import razorpay
@@ -81,8 +80,13 @@ class StripeWebhookView(APIView):
         return Response(status=status.HTTP_200_OK)
         
     def get_expiry_date(self, interval):
-        days = 365 if interval == "yearly" else 30
-        return timezone.now().date() + timedelta(days=days) 
+        # SubscriptionPlan.INTERVAL_CHOICES uses "year"/"month", never
+        # "yearly" - so annual plans were silently expiring after 30 days.
+        days = 365 if interval in ("year", "yearly") else 30
+        # subscription_end_date is a DateTimeField and is compared against
+        # timezone.now() during authentication, so return an aware datetime
+        # rather than a bare date.
+        return timezone.now() + timedelta(days=days)
     
     def update_tenant_subscription(
         self,
@@ -359,21 +363,29 @@ class StripeProductWebhookView(APIView):
                         )
                         return Response(status=status.HTTP_200_OK)
 
+                    # Stripe reports every amount in the smallest currency
+                    # unit; the columns hold major units.
+                    currency = session.get("currency") or payment_config.currency
                     total_details = session.get("total_details", {}) or {}
-                    discount_amount = Decimal(total_details.get("amount_discount") or 0)
-                    tax_amount = Decimal(total_details.get("amount_tax") or 0)
+                    discount_amount = from_minor_units(
+                        total_details.get("amount_discount"), currency
+                    )
+                    tax_amount = from_minor_units(
+                        total_details.get("amount_tax"), currency
+                    )
 
                     # 1. Create the invoice
-                    invoice_number = f"INV-{timezone.now().strftime('%Y%m%d%H%M%S')}"
                     invoice = Invoice.objects.create(
-                        invoice_number=invoice_number,
+                        invoice_number=build_invoice_number(),
                         user=user,
                         phone=user.mobile,
                         shipping_address=user.address,
                         payment_method="card",
                         payment_status="paid",
                         order_status="confirmed",
-                        total_amount=Decimal(session["amount_total"] or 0),
+                        total_amount=from_minor_units(
+                            session.get("amount_total"), currency
+                        ),
                         discount=discount_amount,
                         tax=tax_amount,
                         stripe_checkout_session_id=checkout_session_id,
@@ -396,18 +408,26 @@ class StripeProductWebhookView(APIView):
                         if cart_item_id:
                             cart_item_ids_to_delete.append(cart_item_id)
 
-                        try:
-                            product = Product.objects.get(id=product_id)
-                            # 2. Create invoice item, leveraging model's save() method to handle stock
-                            InvoiceItem.objects.create(
-                                invoice=invoice,
-                                product=product,
-                                quantity=item.quantity,
-                                price=Decimal(item.price.unit_amount or 0),
+                        product = Product.objects.filter(id=product_id).first()
+                        if product is None:
+                            # The customer has already been charged, so an
+                            # invoice missing a line it was paid for cannot be
+                            # allowed to stand: fail the whole handler and let
+                            # Stripe retry the event.
+                            raise Product.DoesNotExist(
+                                f"Product {product_id} not found for invoice "
+                                f"{invoice.invoice_number}"
                             )
-                        except Product.DoesNotExist:
-                            logger.error(f"Product with ID {product_id} not found for invoice {invoice.invoice_number}.")
-                            # Optionally, raise an exception here to fail the transaction
+
+                        # 2. Create invoice item, leveraging model's save() method to handle stock
+                        InvoiceItem.objects.create(
+                            invoice=invoice,
+                            product=product,
+                            quantity=item.quantity,
+                            price=from_minor_units(
+                                item.price.unit_amount, currency
+                            ),
+                        )
 
                     # 3. Recalculate invoice total based on created items
                     invoice.recalc_total()
@@ -417,11 +437,16 @@ class StripeProductWebhookView(APIView):
                         CartItem.objects.filter(user=user, id__in=cart_item_ids_to_delete).delete()
                         logger.info(f"Cleared {len(cart_item_ids_to_delete)} items from cart for user {user.email}")
 
-                except Exception as e:
-                    logger.error(f"Error processing checkout for {customer_email}: {e}")
+                except Exception:
+                    logger.exception(
+                        "Error processing checkout for %s", customer_email
+                    )
+                    # Returning from inside atomic() does not roll back on its
+                    # own - without this the half-written invoice was committed.
+                    transaction.set_rollback(True)
                     return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        logger.info("Stripe Event:\n%s", json.dumps(event, indent=4))
+        logger.debug("Stripe event %s handled for tenant %s", event_type, tenant_id)
 
         return Response(status=status.HTTP_200_OK)
 
@@ -430,28 +455,42 @@ class RazorpayWebhookView(APIView):
     permission_classes = [AllowAny]
 
     def create_invoice_items_from_invoice(self, invoice):
-        if invoice.items.exists():
-            return
+        """
+        Settle a paid Razorpay order.
 
-        cart_items = (
-            CartItem.objects.select_related("product")
-            .filter(user=invoice.user)
-            .order_by("product__name")
-        )
+        The lines are written when the order is created (see
+        ProductCheckoutSessionView) so that the invoice always reflects what was
+        actually ordered and priced. Anything still in the cart that matches a
+        purchased product is cleared here.
 
-        if not cart_items.exists():
-            return
-
+        Older orders created before the lines were snapshotted still fall back
+        to the cart so they are not left empty.
+        """
         with transaction.atomic():
-            for cart_item in cart_items:
-                InvoiceItem.objects.create(
-                    invoice=invoice,
-                    product=cart_item.product,
-                    quantity=cart_item.quantity,
-                    price=cart_item.price,
+            if not invoice.items.exists():
+                cart_items = (
+                    CartItem.objects.select_related("product")
+                    .filter(user=invoice.user)
+                    .order_by("product__name")
                 )
 
-            CartItem.objects.filter(user=invoice.user).delete()
+                if not cart_items.exists():
+                    return
+
+                for cart_item in cart_items:
+                    InvoiceItem.objects.create(
+                        invoice=invoice,
+                        product=cart_item.product,
+                        quantity=cart_item.quantity,
+                        price=cart_item.price,
+                    )
+
+            purchased_product_ids = invoice.items.values_list(
+                "product_id", flat=True
+            )
+            CartItem.objects.filter(
+                user=invoice.user, product_id__in=list(purchased_product_ids)
+            ).delete()
 
     def post(self, request, tenant_id):
         webhook_signature = request.headers.get('X-Razorpay-Signature', '')
@@ -459,7 +498,7 @@ class RazorpayWebhookView(APIView):
         # Request body must be read as raw bytes for signature validation
         webhook_body = request.body
 
-        print("Received Razorpay webhook for tenant:", tenant_id)
+        logger.info("Received Razorpay webhook for tenant %s", tenant_id)
 
         try:
             tenant = Tenant.objects.get(id=tenant_id)
@@ -515,25 +554,50 @@ class RazorpayWebhookView(APIView):
                 razorpay_order_id = payment_entity.get('order_id')
                 razorpay_payment_id = payment_entity.get('id')
 
-                invoice = Invoice.objects.filter(razorpay_order_id=razorpay_order_id).first()
+                with transaction.atomic():
+                    # Razorpay retries webhooks, so lock the row and re-read the
+                    # status inside the transaction to keep the handler
+                    # idempotent under concurrent deliveries.
+                    invoice = (
+                        Invoice.objects.select_for_update()
+                        .filter(razorpay_order_id=razorpay_order_id)
+                        .first()
+                    )
 
-                if invoice and invoice.payment_status != 'paid':
-                    invoice.payment_status = 'paid'
-                    invoice.razorpay_payment_id = razorpay_payment_id
-                    invoice.save()
+                    if invoice and invoice.payment_status != 'paid':
+                        invoice.payment_status = 'paid'
+                        invoice.order_status = 'confirmed'
+                        invoice.razorpay_payment_id = razorpay_payment_id
+                        invoice.save(
+                            update_fields=[
+                                "payment_status",
+                                "order_status",
+                                "razorpay_payment_id",
+                            ]
+                        )
 
-                if invoice and invoice.payment_status == 'paid':
-                    self.create_invoice_items_from_invoice(invoice)
+                    if invoice and invoice.payment_status == 'paid':
+                        self.create_invoice_items_from_invoice(invoice)
 
             elif event_type == 'payment.failed':
                 failed_entity = data.get('payload', {}).get('payment', {}).get('entity', {})
                 razorpay_order_id = failed_entity.get('order_id')
 
-                Invoice.objects.filter(razorpay_order_id=razorpay_order_id).delete()
+                with transaction.atomic():
+                    invoice = (
+                        Invoice.objects.select_for_update()
+                        .filter(razorpay_order_id=razorpay_order_id)
+                        .first()
+                    )
 
-            print("razorpay Event:\n", json.dumps(event_type, indent=4))
-            print("razorpay Data:\n", json.dumps(data, indent=4))
-        
+                    # Never delete an order that has been paid - a late
+                    # payment.failed for a retried attempt used to wipe the
+                    # record of a successful purchase.
+                    if invoice and invoice.payment_status != 'paid':
+                        # Model delete() walks the items, which returns the
+                        # reserved stock to the products.
+                        invoice.delete()
+
         return Response(status=status.HTTP_200_OK)
 
 

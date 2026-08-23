@@ -6,7 +6,6 @@ router = DefaultRouter()
 
 
 router.register("details", SalonDetailView, basename="salonDetails")
-router.register("opening-hours", SalonOpeningHoursView, basename="opening-hours")
 
 urlpatterns = [
 

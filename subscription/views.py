@@ -22,8 +22,12 @@ from .models import *
 from utils.permissions import CustomPermission, IsPublicSchemaSuperUser, IsAdmin
 from utils.pagination import CustomPageNumberPagination
 from utils.custom_exception import BadRequestException
-from utils.permissions import IsPublicSchemaSuperUser
-from .utils import get_active_subscription, cancel_subscriptions, upgrade_subscription
+from .utils import (
+    cancel_subscriptions,
+    find_plan_by_price,
+    get_active_subscription,
+    upgrade_subscription,
+)
 import utils.response_handler as rh
 import datetime
 import stripe
@@ -133,7 +137,7 @@ class SubscriptionPlanManageView(viewsets.ModelViewSet):
     
 
 class GetOwnSubscription(APIView):
-    permission_classes   = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         tenant = request.tenant
@@ -197,8 +201,10 @@ class CancelSubscription(APIView):
             stripe_active_subscriptions = get_active_subscription(
                 stripe_customer_id, tenant
             )
-            if stripe_active_subscriptions:
-                stipe_subscription_id = stripe_active_subscriptions.data[0].id
+            # A Stripe ListObject is truthy even with no results, so check
+            # "data" explicitly before indexing into it.
+            if stripe_active_subscriptions and stripe_active_subscriptions["data"]:
+                stipe_subscription_id = stripe_active_subscriptions["data"][0]["id"]
         # cancel subscription
         if stipe_subscription_id:
             if cancel_subscriptions(stipe_subscription_id, period_end=True):
@@ -233,11 +239,11 @@ class UpgradeSubscriptionPlan(APIView):
 
         price_id = request.data.get("price_id")
 
-        if not price_id:      
+        if not price_id:
             response = rh.ResponseMsg(
                 {},
                 True,
-                "You do not have any active subscription to cancel"
+                "price_id is required to upgrade a subscription"
             )
             return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
 
@@ -247,11 +253,15 @@ class UpgradeSubscriptionPlan(APIView):
         stipe_subscription_id = tenant.stripe_subscription_id
         stripe_customer_id = tenant.stripe_customer_id
 
-        upgrade_plan = SubscriptionPlan.objects.get(stripe_price_id=price_id)
-        message = None
+        upgrade_plan = find_plan_by_price(price_id)
+        if upgrade_plan is None:
+            response = rh.ResponseMsg(
+                {}, True, "Invalid subscription plan"
+            )
+            return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
 
         message = None
-       
+
         # if subscription plan is trial
         if subscription_plan and subscription_plan.interval == "trial":
             response = rh.ResponseMsg(
@@ -290,43 +300,51 @@ class UpgradeSubscriptionPlan(APIView):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
             
         # Check if there is active subscription for this customer
-        if message is None:
-            stripe_active_subscriptions = get_active_subscription(
-                stripe_customer_id, tenant
+        stripe_active_subscriptions = get_active_subscription(
+            stripe_customer_id, tenant
+        )
+
+        # get_active_subscription() returns None when the Stripe call fails, so
+        # subscripting it directly used to raise a TypeError.
+        if not stripe_active_subscriptions or not stripe_active_subscriptions["data"]:
+            response = rh.ResponseMsg(
+                {},
+                True,
+                "You do not have any active subscription to upgrade"
             )
-            if stripe_active_subscriptions["data"]:
-                stripe_active_subscriptions = (
-                    stripe_active_subscriptions.to_dict()
-                )
-                stipe_subscription_id = stripe_active_subscriptions["data"][
-                    0
-                ].id
-                inv_url = upgrade_subscription(
-                    stipe_subscription_id,
-                    price_id,
-                    stripe_customer_id,
-                    tenant,
-                    subscription_plan.id,
-                    upgrade_plan.id,
-                    request.user.id,
-                )
-                if inv_url:
-                    response = rh.ResponseMsg(
-                        {"url": inv_url},
-                        False,
-                        "Pay the invoice to upgrade or downgrade the plan",
-                    )
-                    return Response(
-                        status=status.HTTP_200_OK, data=response.response
-                    )
-            else:
-                response = rh.ResponseMsg(
-                    {},
-                    True,
-                    "You do not have any active subscription to upgrade"
-                )
-                return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
-    
+            return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
+
+        stipe_subscription_id = stripe_active_subscriptions["data"][0]["id"]
+
+        inv_url = upgrade_subscription(
+            stipe_subscription_id,
+            price_id,
+            stripe_customer_id,
+            tenant,
+            subscription_plan.id,
+            upgrade_plan.id,
+            request.user.id,
+        )
+
+        if not inv_url:
+            # Falling through without returning made Django raise
+            # "view didn't return an HttpResponse object" (a 500) whenever
+            # Stripe declined to produce an invoice.
+            response = rh.ResponseMsg(
+                {},
+                True,
+                "Could not start the plan change. Please try again later.",
+            )
+            return Response(status=status.HTTP_400_BAD_REQUEST, data=response.response)
+
+        response = rh.ResponseMsg(
+            {"url": inv_url},
+            False,
+            "Pay the invoice to upgrade or downgrade the plan",
+        )
+        return Response(status=status.HTTP_200_OK, data=response.response)
+
+
 class InvoiceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [IsAdmin]
     pagination_class = CustomPageNumberPagination
@@ -336,13 +354,16 @@ class InvoiceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
 
+        # Do not rely on another module having set the key at import time.
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+
         invoices = stripe.Invoice.list(
             limit=100
         )
-    
+
         for invoice in invoices.auto_paging_iter():
             Invoice.sync_from_stripe_data(invoice)
-        
+
         tenant = self.request.tenant
         stripe_customer_id = tenant.stripe_customer_id
         schema_name = tenant.schema_name
@@ -364,29 +385,37 @@ class InvoiceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
                     customer_id__in=customer_ids
                 )
 
+        elif stripe_customer_id:
+            # Outside the public schema a tenant may only ever see its own
+            # invoices. This filter used to sit after an early `return` in the
+            # date-filter branch, so passing start_date/end_date exposed every
+            # customer's invoices to any tenant admin.
+            queryset = queryset.filter(customer=stripe_customer_id)
+        else:
+            # No Stripe customer yet - filtering on None would match invoices
+            # with a null customer instead of returning nothing.
+            queryset = queryset.none()
+
         # Date filtering
         start_date = self.request.query_params.get("start_date")
         end_date = self.request.query_params.get("end_date")
 
         if start_date and end_date:
-            start_date = datetime.datetime.strptime(
-                start_date, "%Y-%m-%d"
-            ).date()
-
-            end_date = datetime.datetime.strptime(
-                end_date, "%Y-%m-%d"
-            ).date()
+            try:
+                start_date = datetime.datetime.strptime(
+                    start_date, "%Y-%m-%d"
+                ).date()
+                end_date = datetime.datetime.strptime(
+                    end_date, "%Y-%m-%d"
+                ).date()
+            except ValueError:
+                raise BadRequestException(
+                    "start_date and end_date must be in YYYY-MM-DD format."
+                )
 
             queryset = queryset.filter(
                 created__date__range=[start_date, end_date]
-            )    
-                
-
-            return queryset
-    
-        queryset = queryset.filter(
-            customer=stripe_customer_id
-        )
+            )
 
         return queryset
 

@@ -2,8 +2,28 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.utils import timezone
 
+from .product import Product
+
+import secrets
 import uuid
+
+INVOICE_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+
+def build_invoice_number():
+    """
+    Collision-resistant invoice number that fits the 20-char column.
+
+    A plain second-resolution timestamp (the previous ``INV-%Y%m%d%H%M%S``)
+    collides as soon as two customers check out inside the same second, and the
+    column is unique - which surfaced to the second customer as a failed
+    checkout.
+    """
+    suffix = "".join(secrets.choice(INVOICE_NUMBER_ALPHABET) for _ in range(6))
+    return f"INV-{timezone.now():%Y%m%d}-{suffix}"
+
 
 class Invoice(models.Model):
     """
@@ -129,27 +149,43 @@ class InvoiceItem(models.Model):
                 f"Not enough stock for {self.product.name}. "
                 f"Available: {self.product.current_stock}, requested: {self.quantity}"
             )
-    
+
     def save(self, *args, **kwargs):
         is_new = self._state.adding
         old_quantity = None if is_new else InvoiceItem.objects.get(pk=self.pk).quantity
- 
+
         with transaction.atomic():
+            # Lock the product row first so concurrent sales serialise on it
+            # rather than both reading the same pre-sale stock level.
+            product = (
+                Product.objects.select_for_update().get(pk=self.product_id)
+            )
+
+            delta = self.quantity if is_new else self.quantity - old_quantity
+
+            if delta > product.current_stock:
+                # current_stock is a PositiveIntegerField: letting this through
+                # produced a raw database constraint error instead of a message
+                # the caller can act on.
+                raise ValidationError(
+                    f"Not enough stock for {product.name}. "
+                    f"Available: {product.current_stock}, requested: {delta}"
+                )
+
             super().save(*args, **kwargs)
- 
-            product = self.product
-            if is_new:
-                product.current_stock = models.F("current_stock") - self.quantity
-            else:
-                diff = self.quantity - old_quantity
-                product.current_stock = models.F("current_stock") - diff
+
+            product.current_stock = models.F("current_stock") - delta
             product.save(update_fields=["current_stock"])
- 
+            product.refresh_from_db(fields=["current_stock"])
+            self.product = product
+
         self.invoice.recalc_total()
- 
+
     def delete(self, *args, **kwargs):
         with transaction.atomic():
-            product = self.product
+            product = (
+                Product.objects.select_for_update().get(pk=self.product_id)
+            )
             product.current_stock = models.F("current_stock") + self.quantity  # restore stock
             product.save(update_fields=["current_stock"])
             super().delete(*args, **kwargs)

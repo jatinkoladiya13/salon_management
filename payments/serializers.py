@@ -4,28 +4,59 @@ from .models import PaymentConfiguration, PaymentProvider
 import stripe
 import razorpay
 
+SECRET_CREDENTIAL_KEYS = {
+    "stripe_secret_key",
+    "razorpay_key_secret",
+    "paypal_client_secret",
+}
+
+
 class PaymentConfigurationSerializer(serializers.ModelSerializer):
-    
+    # Accepted on write, never echoed back: the raw gateway secrets and the
+    # webhook signing secret must not leave the server once stored.
+    payment_credentials = serializers.JSONField(write_only=True, required=False)
+    webhook_secret = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, allow_null=True
+    )
+    payment_credentials_summary = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = PaymentConfiguration
         fields = "__all__"
 
+    def get_payment_credentials_summary(self, obj):
+        """
+        Non-sensitive view of the stored credentials: public identifiers in
+        full, secrets reduced to a masked placeholder.
+        """
+        credentials = obj.payment_credentials or {}
+        summary = {}
+        for key, value in credentials.items():
+            if key in SECRET_CREDENTIAL_KEYS:
+                summary[key] = "********" if value else None
+            else:
+                summary[key] = value
+        return summary
+
     def validate(self, attrs):
-        provider = attrs.get("provider")
-        credentials = attrs.get("payment_credentials") or {}
+        # On a PATCH the provider may not be in the payload; fall back to the
+        # stored one so credentials are still validated against it.
+        provider = attrs.get("provider") or getattr(self.instance, "provider", None)
+        credentials = attrs.get("payment_credentials")
 
-        if provider == PaymentProvider.STRIPE:
-            self.validate_stripe(credentials)
+        if credentials is not None:
+            if provider == PaymentProvider.STRIPE:
+                self.validate_stripe(credentials)
 
-        elif provider == PaymentProvider.RAZORPAY:
-            self.validate_razorpay(credentials)
+            elif provider == PaymentProvider.RAZORPAY:
+                self.validate_razorpay(credentials)
 
         branding_details = attrs.get("branding_details")
         if branding_details:
             self.validate_branding_details(branding_details)
 
         return attrs
-    
+
     def validate_branding_details(self, branding_details):
         """
         Validates the branding_details JSON field.

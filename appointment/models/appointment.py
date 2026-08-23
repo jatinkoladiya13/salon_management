@@ -107,6 +107,12 @@ class Appointments(DateMixin, models.Model):
     start_time = models.TimeField()
     end_time = models.TimeField()
 
+    # Set once the corresponding reminder has gone out. Without this the
+    # every-15-minutes task re-sent reminders whenever the beat drifted, and
+    # skipped them entirely whenever a run was late.
+    reminder_24h_sent_at = models.DateTimeField(blank=True, null=True)
+    reminder_15min_sent_at = models.DateTimeField(blank=True, null=True)
+
     class Meta:
         db_table = "appointments"
         verbose_name = "Appointment"
@@ -126,8 +132,6 @@ class Appointments(DateMixin, models.Model):
         )
     
     def clean(self):
-        print("Validating appointment...")
-        print(f"Customer role: {self.customer.get_role}, Staff role: {self.staff.get_role}")
         if self.customer.get_role != TENANTUSER_GROUP_NAME:
             raise ValidationError({
                 "customer": "Selected user must have the Customer role."
@@ -139,8 +143,6 @@ class Appointments(DateMixin, models.Model):
             })
 
     def save(self,  *args, **kwargs):
-        print("Saving appointment...")
-        print(f"Customer role: {self.customer.get_role}, Staff role: {self.staff.get_role}")
         self.full_clean()   # Calls clean()
         return super().save(*args, **kwargs)
 

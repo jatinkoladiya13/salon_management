@@ -31,8 +31,11 @@ class SalonDetailsCreateSerializer(serializers.ModelSerializer):
         return value
     
 class SalongDetailsRetrieveSerializer(serializers.ModelSerializer):
-    tenant_for_salon = TeantSerializer(read_only =True)
-    
+    # Tenant.salonDetails declares related_name="salong_for_tenant"; the old
+    # "tenant_for_salon" attribute does not exist on SalonDetails, so every
+    # retrieve raised AttributeError before reaching the client.
+    salong_for_tenant = TeantSerializer(read_only=True)
+
     class Meta:
         model = SalonDetails
         fields = "__all__"

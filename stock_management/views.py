@@ -7,7 +7,8 @@ from rest_framework import viewsets, status
 from rest_framework import filters
 
 from utils.pagination import CustomPageNumberPagination
-from utils.permissions import IsAdmin, IsAdminOrStaff
+from utils.permissions import IsPublicSchemaSuperUser, CustomPermission
+from core.constants import *
 import utils.response_handler as rh
 
 from .models import StockPurchase
@@ -32,14 +33,23 @@ class StockPurchaseViewSet(viewsets.ModelViewSet):
     ordering_fields = ["purchase_date","total_amount",]
 
     def get_permissions(self):
+        permission_classes = [IsAuthenticated]
+
+        schema_name = self.request.GET.get("schema_name")
+        if schema_name:
+            permission_classes += [IsPublicSchemaSuperUser]
+
         if self.action in ["list", "retrieve"]:
-            permission_classes = [IsAuthenticated]
+            permission_classes += [CustomPermission(READ_STOCKS)]
+
+        elif self.action == "create":
+            permission_classes += [CustomPermission(CREATE_STOCKS)]
+
         elif self.action in ["create", "update", "partial_update"]:
-            permission_classes = [IsAdminOrStaff]
+            permission_classes += [CustomPermission(UPDATE_STOCKS)]
+
         elif self.action == "destroy":
-            permission_classes = [IsAdmin]
-        else:
-            permission_classes = self.permission_classes
+            permission_classes += [CustomPermission(DELETE_STOCKS)]
 
         return [permission() for permission in permission_classes]
 
