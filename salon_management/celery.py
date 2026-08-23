@@ -17,9 +17,10 @@ app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
 
 @app.task(base=TenantTask, bind=True)
 def send_mail(self, subject, body, recipient, content_subtype="plain"):
-    print("send_email")
-    mail = EmailMessage(subject, body, "khodalenterprise557@gmail.com", to=[recipient])
-    mail.content_subtype = content_subtype 
+    # From address follows DEFAULT_FROM_EMAIL rather than a hardcoded mailbox.
+    mail = EmailMessage(
+        subject, body, settings.DEFAULT_FROM_EMAIL, to=[recipient]
+    )
+    mail.content_subtype = content_subtype
     mail.send()
-    print("after send_mail")
 

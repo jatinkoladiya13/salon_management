@@ -1,8 +1,10 @@
+import logging
+
 from celery import shared_task
 from datetime import date, timedelta, datetime, time
 from django_tenants.utils import schema_context
-from django.conf import settings
 from django.db.models import Q
+from django.utils import timezone
 
 from account.models import User
 from .models import TimeSlot, Appointments
@@ -11,52 +13,105 @@ from .sockets import notify_user_via_socket
 from tenant.models import Tenant
 from core.constants import TENANTSTAFF_GROUP_NAME
 
+logger = logging.getLogger(__name__)
+
+# Working hours and slot length for generated slots.
+WORK_START_TIME = time(9, 0)
+WORK_END_TIME = time(17, 0)
+SLOT_DURATION_MINUTES = 60
+SLOT_HORIZON_DAYS = 15
+
+
+def _create_timeslots_for_current_schema():
+    """Generate the rolling slot window for the schema that is already active."""
+    staff_members = User.objects.filter(
+        is_active=True, groups__name=TENANTSTAFF_GROUP_NAME
+    ).distinct()
+
+    start_date = date.today()
+    end_date = start_date + timedelta(days=SLOT_HORIZON_DAYS)
+    created_count = 0
+
+    for staff in staff_members:
+        current_date = start_date
+        while current_date <= end_date:
+            current_time = datetime.combine(current_date, WORK_START_TIME)
+            end_datetime = datetime.combine(current_date, WORK_END_TIME)
+
+            while current_time < end_datetime:
+                slot_start_time = current_time.time()
+                slot_end = current_time + timedelta(minutes=SLOT_DURATION_MINUTES)
+
+                # Do not create a slot that would run past the end of the day.
+                if slot_end > end_datetime:
+                    break
+
+                # get_or_create is idempotent, preventing duplicates
+                _, created = TimeSlot.objects.get_or_create(
+                    staff=staff,
+                    slot_date=current_date,
+                    start_time=slot_start_time,
+                    defaults={'end_time': slot_end.time()},
+                )
+                created_count += int(created)
+
+                current_time = slot_end
+            current_date += timedelta(days=1)
+
+    return staff_members.count(), created_count
+
 
 @shared_task
 def create_recurring_timeslots():
     """
     A daily task to create timeslots for the next 15 days for all staff members.
     This task should be scheduled to run once every day.
+
+    Staff, time slots and appointments all live in the tenant schemas, so the
+    task has to walk the tenants. Run against whatever schema Celery happened to
+    be connected to, it only ever looked at the public schema - which holds no
+    staff - and therefore created nothing at all.
     """
-    print("Starting to create recurring time slots...")
-    staff_members = User.objects.filter(is_active=True, groups__name=TENANTSTAFF_GROUP_NAME).distinct()
-    start_date = date.today()
-    end_date = start_date + timedelta(days=15)
+    total_staff = 0
+    total_created = 0
 
-    # Define working hours and slot duration (can be moved to a settings model later)
-    work_start_time = time(9, 0)
-    work_end_time = time(17, 0)
-    slot_duration_minutes = 60
+    for tenant in Tenant.objects.exclude(schema_name="public"):
+        with schema_context(tenant.schema_name):
+            staff_count, created_count = _create_timeslots_for_current_schema()
 
-    for staff in staff_members:
-        print(f"Processing staff: {staff.email}")
-        current_date = start_date
-        while current_date <= end_date:
-            current_time = datetime.combine(current_date, work_start_time)
-            end_datetime = datetime.combine(current_date, work_end_time)
+        total_staff += staff_count
+        total_created += created_count
+        logger.info(
+            "Created %s time slots for %s staff in %s",
+            created_count,
+            staff_count,
+            tenant.schema_name,
+        )
 
-            while current_time < end_datetime:
-                slot_start_time = current_time.time()
-                slot_end_time = (current_time + timedelta(minutes=slot_duration_minutes)).time()
+    return (
+        f"Created {total_created} time slots for {total_staff} staff members "
+        f"across all tenants."
+    )
 
-                # Avoid creating slots past the work end time
-                if slot_end_time > work_end_time and not (slot_end_time.hour == work_end_time.hour and slot_end_time.minute == work_end_time.minute):
-                    break
 
-                # get_or_create is idempotent, preventing duplicates
-                slot, created = TimeSlot.objects.get_or_create(
-                    staff=staff,
-                    slot_date=current_date,
-                    start_time=slot_start_time,
-                    defaults={'end_time': slot_end_time}
-                )
-                if created:
-                    print(f"  Created slot for {staff.email} on {current_date} at {slot_start_time}")
+def _starting_within(now, horizon):
+    """
+    Q object for appointments starting between ``now`` and ``now + horizon``.
 
-                current_time += timedelta(minutes=slot_duration_minutes)
-            current_date += timedelta(days=1)
-    print("Finished creating recurring time slots.")
-    return f"Time slots created for {staff_members.count()} staff members up to {end_date}."
+    The start is stored as a separate date and time, so the window has to be
+    expressed as "an earlier day, or the boundary day up to the boundary time"
+    rather than a single datetime comparison.
+    """
+    upper = now + horizon
+
+    not_yet_started = Q(appointment_date__gt=now.date()) | Q(
+        appointment_date=now.date(), start_time__gte=now.time()
+    )
+    before_upper = Q(appointment_date__lt=upper.date()) | Q(
+        appointment_date=upper.date(), start_time__lte=upper.time()
+    )
+
+    return not_yet_started & before_upper
 
 
 @shared_task
@@ -64,47 +119,56 @@ def send_appointment_reminders():
     """
     Sends reminders for appointments that are 24 hours or 15 minutes away.
     This task should be scheduled to run every 15 minutes.
+
+    Reminders are driven by "is it due and has it been sent", not by a 15-minute
+    slice of wall clock, so a late or repeated run neither double-sends nor
+    skips a customer.
     """
-    now = datetime.now().astimezone()
-    print(f"Running appointment reminders at {now}")
+    now = timezone.localtime()
 
-    # Time windows for reminders
-    reminder_24h_start = now + timedelta(hours=24)
-    reminder_24h_end = reminder_24h_start + timedelta(minutes=15)
-
-    reminder_15min_start = now + timedelta(minutes=15)
-    reminder_15min_end = reminder_15min_start + timedelta(minutes=15)
+    reminder_rules = (
+        ("reminder_24h_sent_at", timedelta(hours=24), "24_hour", "24 hours"),
+        ("reminder_15min_sent_at", timedelta(minutes=15), "15_minute", "15 minutes"),
+    )
 
     tenants = Tenant.objects.exclude(schema_name='public')
+    sent = 0
 
     for tenant in tenants:
         with schema_context(tenant.schema_name):
-           # Find appointments needing a 24-hour reminder
-            appointments_24h = Appointments.objects.filter(
-                status='confirmed',
-                time_slot__slot_date=reminder_24h_start.date(),
-                time_slot__start_time__gte=reminder_24h_start.time(),
-                time_slot__start_time__lt=reminder_24h_end.time()
-            )
+            for sent_field, horizon, reminder_type, human in reminder_rules:
+                appointments = (
+                    Appointments.objects.select_related(
+                        "customer", "staff", "service"
+                    )
+                    .filter(_starting_within(now, horizon), status="confirmed")
+                    .filter(**{f"{sent_field}__isnull": True})
+                )
 
-            for appt in appointments_24h:
-                print(f"Sending 24-hour reminder for appointment {appt.id}")
-                send_appointment_reminder_email.delay(appt.id, "24_hour")
-                notify_user_via_socket(appt.customer.id, tenant.schema_name, appt.id, f"Reminder: Your appointment for {appt.service.service_name} is in 24 hours.")
-                notify_user_via_socket(appt.staff.id, tenant.schema_name, appt.id, f"Reminder: Your appointment with {appt.customer.username} is in 24 hours.")
+                for appt in appointments:
+                    # Mark first: a crash mid-send is better than a customer
+                    # being emailed on every subsequent run.
+                    Appointments.objects.filter(pk=appt.pk).update(
+                        **{sent_field: timezone.now()}
+                    )
 
-            # Find appointments needing a 15-minute reminder
-            appointments_15min = Appointments.objects.filter(
-                status='confirmed',
-                time_slot__slot_date=reminder_15min_start.date(),
-                time_slot__start_time__gte=reminder_15min_start.time(),
-                time_slot__start_time__lt=reminder_15min_end.time()
-            )
+                    send_appointment_reminder_email.delay(
+                        str(appt.id), reminder_type, tenant.schema_name
+                    )
+                    notify_user_via_socket(
+                        appt.customer.id,
+                        tenant.schema_name,
+                        appt.id,
+                        f"Reminder: Your appointment for "
+                        f"{appt.service.service_name} is in {human}.",
+                    )
+                    notify_user_via_socket(
+                        appt.staff.id,
+                        tenant.schema_name,
+                        appt.id,
+                        f"Reminder: Your appointment with "
+                        f"{appt.customer.username} is in {human}.",
+                    )
+                    sent += 1
 
-            for appt in appointments_15min:
-                print(f"Sending 15-minute reminder for appointment {appt.id}")
-                send_appointment_reminder_email.delay(appt.id, "15_minute")
-                notify_user_via_socket(appt.customer.id, tenant.schema_name, appt.id, f"Your appointment for {appt.service.service_name} is in 15 minutes.")
-                notify_user_via_socket(appt.staff.id, tenant.schema_name, appt.id, f"Your appointment with {appt.customer.username} is in 15 minutes.")
-    
-    return f"Reminder task finished for all tenants."
+    return f"Reminder task finished for all tenants. {sent} reminders sent."

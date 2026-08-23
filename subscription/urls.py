@@ -5,7 +5,10 @@ from .views import *
 router = DefaultRouter()
 
 router.register("subscription_plan", SubscriptionPlanManageView)
-router.register("invoice", InvoiceViewSet)
+# Explicit basename: without it this route is also named "invoice-list", which
+# collides with product_sales' order invoices and makes reverse() resolve to
+# whichever URLconf was loaded last.
+router.register("invoice", InvoiceViewSet, basename="subscription-invoice")
 
 urlpatterns = [
     path("stripe-product-list/", StripeProductListAPIView.as_view(), name="stripe-product-list"),

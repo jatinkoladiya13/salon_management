@@ -1,4 +1,8 @@
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
+
+from product_sales.models import Product
+
 import uuid
 
 class StockPurchaseItem(models.Model):
@@ -34,26 +38,37 @@ class StockPurchaseItem(models.Model):
         self.subtotal = self.quantity * self.purchase_price
         is_new = self._state.adding
         old_quantity = None if is_new else StockPurchaseItem.objects.get(pk=self.pk).quantity
- 
+
         with transaction.atomic():
+            product = Product.objects.select_for_update().get(pk=self.product_id)
+
+            delta = self.quantity if is_new else self.quantity - old_quantity
+
             super().save(*args, **kwargs)
- 
-            product = self.product
-            if is_new:
-                product.current_stock = models.F("current_stock") + self.quantity
-            else:
-                diff = self.quantity - old_quantity
-                product.current_stock = models.F("current_stock") + diff
- 
+
+            product.current_stock = models.F("current_stock") + delta
             # keep the product's cost price up to date with the latest purchase
             product.purchase_price = self.purchase_price
             product.save(update_fields=["current_stock", "purchase_price"])
- 
+            product.refresh_from_db(fields=["current_stock"])
+            self.product = product
+
         self.stock_purchase.recalc_total()
- 
+
     def delete(self, *args, **kwargs):
         with transaction.atomic():
-            product = self.product
+            product = Product.objects.select_for_update().get(pk=self.product_id)
+
+            if self.quantity > product.current_stock:
+                # The purchased units have already been sold on, so reversing
+                # the purchase would take current_stock below zero and trip the
+                # PositiveIntegerField constraint with an opaque database error.
+                raise ValidationError(
+                    f"Cannot remove this purchase line: only "
+                    f"{product.current_stock} of {product.name} remain in stock "
+                    f"but the line added {self.quantity}."
+                )
+
             product.current_stock = models.F("current_stock") - self.quantity
             product.save(update_fields=["current_stock"])
             super().delete(*args, **kwargs)

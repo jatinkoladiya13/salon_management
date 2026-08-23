@@ -1,5 +1,8 @@
+from django.db import transaction
+from django.utils import timezone
+
 from rest_framework import serializers
-from ..models import TimeSlot, Appointments
+from ..models import TimeSlot, Appointments, StaffServices
 from account.serializers import UserSerializer
 from .services  import ServiceSerializer
 
@@ -20,6 +23,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
     def validate(self, data):
         time_slot = data.get("time_slot")
         staff = data.get("staff")
+        service = data.get("service")
         appointment_date = data.get("appointment_date")
         start_time = data.get("start_time")
         end_time = data.get("end_time")
@@ -39,13 +43,60 @@ class AppointmentSerializer(serializers.ModelSerializer):
         if time_slot and end_time and time_slot.end_time != end_time:
             raise serializers.ValidationError({"end_time": "The end time must match the selected time slot."})
 
+        if service is not None and not service.is_active:
+            raise serializers.ValidationError(
+                {"service": "This service is no longer offered."}
+            )
+
+        # The staff member has to actually provide the service being booked.
+        if staff is not None and service is not None:
+            if not StaffServices.objects.filter(
+                staff=staff, service=service
+            ).exists():
+                raise serializers.ValidationError(
+                    {"staff": "This staff member does not provide the selected service."}
+                )
+
+        # Only meaningful on create; an admin closing out an old appointment
+        # must still be able to edit it.
+        if self.instance is None and time_slot is not None:
+            slot_start = timezone.datetime.combine(
+                time_slot.slot_date, time_slot.start_time
+            )
+            if timezone.is_naive(slot_start):
+                slot_start = timezone.make_aware(
+                    slot_start, timezone.get_current_timezone()
+                )
+            if slot_start < timezone.now():
+                raise serializers.ValidationError(
+                    {"time_slot": "This time slot is in the past."}
+                )
+
         return data
 
     def create(self, validated_data):
-        appointment = super().create(validated_data)
-        time_slot = appointment.time_slot
-        time_slot.is_booked = True
-        time_slot.save()
+        time_slot = validated_data.get("time_slot")
+
+        with transaction.atomic():
+            # Re-read the slot under a row lock. validate() checked is_booked
+            # outside any transaction, so two customers submitting at the same
+            # moment could both pass it and double-book the same slot.
+            locked_slot = (
+                TimeSlot.objects.select_for_update()
+                .filter(pk=time_slot.pk)
+                .first()
+            )
+
+            if locked_slot is None or locked_slot.is_booked:
+                raise serializers.ValidationError(
+                    {"time_slot": "This time slot is already booked."}
+                )
+
+            appointment = super().create(validated_data)
+
+            locked_slot.is_booked = True
+            locked_slot.save(update_fields=["is_booked"])
+
         return appointment
 
 

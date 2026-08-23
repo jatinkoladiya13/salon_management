@@ -55,7 +55,9 @@ class StaffServices(models.Model):
         unique_together = ("staff", "service")
 
     def __str__(self):
-        return f"{self.user.email} - {self.service.service_name}"
+        # self.staff - there is no "user" field on this model, so the old
+        # version raised AttributeError anywhere a StaffServices was rendered.
+        return f"{self.staff.email} - {self.service.service_name}"
     
     def clean(self):
 

@@ -1,5 +1,8 @@
 from channels.layers import get_channel_layer
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 async def notify_user_via_socket_async(user_id, schema_name, appointment_id, message):
@@ -25,4 +28,32 @@ async def notify_user_via_socket_async(user_id, schema_name, appointment_id, mes
     )
 
 def notify_user_via_socket(user_id, schema_name, appointment_id, message):
-    asyncio.run(notify_user_via_socket_async(user_id, schema_name, appointment_id, message))
+    """
+    Fire-and-forget notification from synchronous code (Celery tasks, views).
+
+    A websocket push must never take down the operation that triggered it, and
+    asyncio.run() raises outright if a loop is already running on this thread.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        # Already inside an event loop - schedule instead of calling run().
+        asyncio.ensure_future(
+            notify_user_via_socket_async(
+                user_id, schema_name, appointment_id, message
+            )
+        )
+        return
+
+    try:
+        asyncio.run(
+            notify_user_via_socket_async(
+                user_id, schema_name, appointment_id, message
+            )
+        )
+    except Exception:
+        logger.warning(
+            "Could not push websocket notification to user %s", user_id
+        )

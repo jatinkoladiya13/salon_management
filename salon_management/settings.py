@@ -27,9 +27,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Defaults stay development-friendly; set DEBUG=False and ALLOWED_HOSTS in the
+# environment for a real deployment.
+DEBUG = config("DEBUG", default=True, cast=bool)
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in config("ALLOWED_HOSTS", default="*").split(",")
+    if host.strip()
+]
 
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', '')
 if CSRF_TRUSTED_ORIGINS:
@@ -235,22 +241,28 @@ SIMPLE_JWT = {
     "JTI_CLAIM": "jti",
 }
 
-STRIPE_LIVE_MODE = False
-STRIPE_PUBLIC_KEY = "pk_test_51SgfN42KmMeI4B6UARTvIrb38iChFDkNrTRNT8oT9sK4TzUWAGx0ZkiCNRgHQEcFNuNcOMqWSTcRajgdW17CscqG00906cKKx4"
-STRIPE_SECRET_KEY = "sk_test_51SgfN42KmMeI4B6UE1xOXfsFmCP7okkvuJL24PTHPMfTXuxD1RtAUojq1p9kQ313YqrWKDCenmmERYDoWioueFSy00HuQBuJCD"
+# Payment and mail credentials come from the environment. They were committed
+# as literals here, which puts live keys in version control and makes rotating
+# a leaked key a code change.
+STRIPE_LIVE_MODE = config("STRIPE_LIVE_MODE", default=False, cast=bool)
+STRIPE_PUBLIC_KEY = config("STRIPE_PUBLIC_KEY", default="")
+STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", default="")
 
-DJSTRIPE_WEBHOOK_SECRET = "whsec_syMhlNwNP4DOywX4j9xZznTARar2vwf5"
+DJSTRIPE_WEBHOOK_SECRET = config("DJSTRIPE_WEBHOOK_SECRET", default="")
 DJSTRIPE_FOREIGN_KEY_TO_FIELD = "id"
 DJSTRIPE_USE_NATIVE_JSONFIELD = True
 
 
 # Email
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_HOST_USER = "khodalenterprise557@gmail.com"
-EMAIL_HOST_PASSWORD ="mapa jlsi ekla ikpt"
-EMAIL_PORT = "587"
-EMAIL_USE_TLS = True
+EMAIL_BACKEND = config(
+    "EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend"
+)
+EMAIL_HOST = config("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER)
 
 #For Redis
 REDIS_HOST = config("REDIS_HOST")
@@ -264,8 +276,11 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_ENABLE_UTC = True
-CELERY_BEAT_SCHEDULER = {
-    "create-timeslots-every-day":{
+# CELERY_BEAT_SCHEDULE, not CELERY_BEAT_SCHEDULER. The latter names the
+# scheduler *class*; assigning the schedule dict to it meant beat never
+# registered either job, so no time slots and no reminders were ever produced.
+CELERY_BEAT_SCHEDULE = {
+    "create-timeslots-every-day": {
         "task": "appointment.tasks.create_recurring_timeslots",
         "schedule": crontab(hour=0, minute=0),
     },

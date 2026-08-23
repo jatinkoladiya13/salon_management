@@ -16,7 +16,11 @@ from tenant.models import Tenant
 from salonDetails.models import SalonDetails
 
 from core.models.group import CustomGroup
-from core.constants import TENANTADMIN_GROUP_NAME
+from core.constants import (
+    TENANTADMIN_GROUP_NAME,
+    TENANTSTAFF_GROUP_NAME,
+    TENANTUSER_GROUP_NAME,
+)
 from account.functions import validate_user_data
 from decouple import config
 
@@ -24,6 +28,19 @@ from utils.custom_exception import BadRequestException
 from utils.helpers import is_permission
 
 User = get_user_model()
+
+# Schema names that a customer must never be able to claim during signup.
+RESERVED_SCHEMA_NAMES = {
+    "public",
+    "template",
+    "information_schema",
+    "pg_catalog",
+    "pg_toast",
+    "admin",
+    "api",
+    "www",
+}
+
 
 class LoginSerializer(TokenObtainPairSerializer):
     
@@ -39,9 +56,11 @@ class LoginSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        tenant = Tenant.objects.get(schema_name=self.schema_name)
 
-        
+        tenant = Tenant.objects.filter(schema_name=self.schema_name).first()
+        if tenant is None:
+            raise BadRequestException("Unknown workspace.")
+
         data["user_data"] = {
             "id": self.user.id,
             "username": self.user.username,
@@ -77,12 +96,17 @@ class NewAccountCreateSerializer(serializers.Serializer):
     )
 
     organisation_slug = serializers.CharField(max_length=20, required=True)
+    organisation_name = serializers.CharField(
+        max_length=255, required=False, allow_blank=True
+    )
 
     mobile_number = serializers.CharField(max_length=20, required=True)
-    
+
     def validate_user_first_name(self, value):
         value = value.strip()
-        if not value.replace("", "").isalpha():
+        # replace(" ", "") - the old replace("", "") was a no-op, so any name
+        # with a space in it ("Mary Jane") was rejected at signup.
+        if not value.replace(" ", "").isalpha():
             raise serializers.ValidationError(
                 "First name should only contain alphabets"
             )
@@ -97,6 +121,11 @@ class NewAccountCreateSerializer(serializers.Serializer):
         return value
     
     def validate_organisation_slug(self, value):
+        value = value.strip().lower()
+
+        if not value:
+            raise serializers.ValidationError("Workspace name is required.")
+
         if not all(
             char.isalpha()
             or (char == "_" and idx > 0 and value[idx - 1] != "_")
@@ -105,7 +134,12 @@ class NewAccountCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Organisation slug should only contain alphabets and underscore, and two underscore should not appear together"
             )
-        
+
+        # The slug becomes a Postgres schema name, so the reserved ones have to
+        # be refused here rather than failing during schema creation.
+        if value in RESERVED_SCHEMA_NAMES:
+            raise serializers.ValidationError("This workspace name is reserved.")
+
         if Tenant.objects.filter(schema_name=value).exists():
             raise serializers.ValidationError("Workspace name already exists.")
         return value
@@ -150,36 +184,35 @@ class NewAccountCreateSerializer(serializers.Serializer):
     
     def create(self, validated_data):
         with transaction.atomic():
-            
+
             slug = validated_data.get("organisation_slug")
-            
+
             salonDetails = SalonDetails.objects.create(
-                name=validated_data.get("organisation_name"),
+                # organisation_name is optional; without the fallback every new
+                # salon was created with name=None.
+                name=validated_data.get("organisation_name") or slug,
                 organization_email=validated_data.get("organization_email"),
                 phone_number=validated_data.get("mobile_number"),
-                slug = slug,
+                slug=slug,
                 status="active",
             )
 
-            print("slug:", slug)
-            
             tenant = create_tenant_and_domain(
                 slug,
                 slug + "." + config("HOST_URI"),
                 salonDetails.id,
             )
-            
+
             with schema_context(tenant.schema_name):
                 group = CustomGroup.objects.get(name=TENANTADMIN_GROUP_NAME)
-                user = User.objects.create_user(
-                    email = validated_data.get("user_email"),
-                    password = validated_data.get("password"),
+                User.objects.create_user(
+                    email=validated_data.get("user_email"),
+                    password=validated_data.get("password"),
                     groups=[group],
                     first_name=validated_data.get("user_first_name"),
                     last_name=validated_data.get("user_last_name"),
                     is_active=True,
                 )
-                user.save()
 
         return validated_data
     
@@ -247,7 +280,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
         user = User.objects.create_user(
             email = validated_data.get("email"),
             password = validated_data.get("password"),
-            groups=[CustomGroup.objects.get(id=3)],
+            groups=[CustomGroup.objects.get(name=TENANTUSER_GROUP_NAME)],
             first_name=validated_data.get("first_name"),
             last_name=validated_data.get("last_name"),
             date_of_birth = validated_data.get("date_of_birth"),
@@ -258,16 +291,16 @@ class UserCreateSerializer(serializers.ModelSerializer):
         return user
     
     def update(self, instance, validated_data):
-        request = self.context.get("rquest")
-        
         groups = validated_data.pop("groups", [])
         password = validated_data.pop("password", None)
 
         if len(groups) > 1:
-                raise ValidationError(
-                    "You can assign only one group at a time to User!"
-                )
-        
+            # serializers.ValidationError, not Django's - the Django one is not
+            # an APIException and used to surface as a server error.
+            raise serializers.ValidationError(
+                {"groups": "You can assign only one group at a time to User!"}
+            )
+
         # new_email= validated_data.get("email")
         # if new_email and new_email != instance.email:
         user = super().update(instance, validated_data)
@@ -331,7 +364,7 @@ class StaffCreateSerializer(serializers.ModelSerializer):
         user = User.objects.create_user(
             email = validated_data.get("email"),
             password = validated_data.get("password"),
-            groups=[CustomGroup.objects.get(id=2)],
+            groups=[CustomGroup.objects.get(name=TENANTSTAFF_GROUP_NAME)],
             first_name=validated_data.get("first_name"),
             last_name=validated_data.get("last_name"),
             date_of_birth = validated_data.get("date_of_birth"),
@@ -352,8 +385,6 @@ class ResetForgotPasswordSerializers(serializers.Serializer):
         confirm_password = data.get("confirm_password")
 
         if new_password != confirm_password:
-            print(new_password)
-            print(confirm_password)
             raise serializers.ValidationError("Passwords do not match.")
         # password should not contain any space
         if " " in new_password:

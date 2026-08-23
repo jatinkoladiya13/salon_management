@@ -12,7 +12,9 @@ from .models import RoleBasePermissionsStatus, CustomGroup
 from django_tenants.utils import schema_context
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from contextlib import nullcontext
+from django.db import transaction
 from core.constants import (
     READ_GROUPS,
     CREATE_GROUPS,
@@ -27,28 +29,30 @@ from core.constants import (
 # Create your views here.
 
 class Groupview(ListModelMixin, CreateModelMixin, UpdateModelMixin, DestroyModelMixin, GenericViewSet, RetrieveModelMixin):
-    queryset = CustomGroup.objects.all()
+    # Explicitly ordered: paginating an unordered queryset gives the client
+    # rows that shift between pages.
+    queryset = CustomGroup.objects.all().order_by("level", "name")
     serializer_class = GroupSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = CustomPageNumberPagination
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
 
-    def get_permission(self):
+    def get_permissions(self):
         permission_classes  = [IsAuthenticated]
         if self.request.user.is_authenticated:
             schema_name  =self.request.GET.get("schema_name")
             if schema_name:
                 permission_classes += [IsPublicSchemaSuperUser]
 
-            if self.action == "list":
+            if self.action in ["list", "retrieve"]:
                 permission_classes += [CustomPermission(READ_GROUPS)]
             elif self.action == "create":
                 permission_classes += [CustomPermission(CREATE_GROUPS)]
             elif self.action  in ["update", "partial_update"]:
                 permission_classes += [CustomPermission(UPDATE_GROUPS)]
             elif self.action == "destroy":
-                permission_classes += [CustomPermission(DELETE_GROUPS)]    
+                permission_classes += [CustomPermission(DELETE_GROUPS)]
 
         return [permission() for permission in permission_classes]
 
@@ -87,12 +91,12 @@ class Groupview(ListModelMixin, CreateModelMixin, UpdateModelMixin, DestroyModel
             with schema_context(schema_name):
                 instance = self.get_object()
                 if instance.name == SUPERADMIN_GROUP_NAME:
-                    raise Exception("You Can't Update this role!!!")
+                    raise PermissionDenied("You Can't Update this role!!!")
                 serializer_data = super().update(request, *args, **kwargs)
         else:
             instance = self.get_object()
             if instance.name == SUPERADMIN_GROUP_NAME:
-                raise Exception("You Can't Update this role!!!")
+                raise PermissionDenied("You Can't Update this role!!!")
             serializer_data = super().update(request, *args, **kwargs)
         response = rh.ResponseMsg(
             data=serializer_data.data,
@@ -107,12 +111,12 @@ class Groupview(ListModelMixin, CreateModelMixin, UpdateModelMixin, DestroyModel
             with schema_context(schema_name):
                 instance = self.get_object()
                 if instance.name == SUPERADMIN_GROUP_NAME:
-                    raise Exception("You Can't delete this role!!!")
+                    raise PermissionDenied("You Can't delete this role!!!")
                 super().destroy(request, *args, **kwargs)
         else:
             instance = self.get_object()
             if instance.name == SUPERADMIN_GROUP_NAME:
-                raise Exception("You Can't delete this role!!!")
+                raise PermissionDenied("You Can't delete this role!!!")
             super().destroy(request, *args, **kwargs)
         response = rh.ResponseMsg(
             data={}, error=False, msg="Group delete Successfully"
@@ -171,14 +175,14 @@ class PermissionStatusView(ListModelMixin, UpdateModelMixin, GenericViewSet):
             with schema_context(schema_name):
                 instance  = self.get_object()
                 if instance.group.name == SUPERADMIN_GROUP_NAME:
-                    raise Exception(
+                    raise PermissionDenied(
                         "You Can't update permission for this role!!!"
                     )
                 serializer_data = super().update(request, *args, **kwargs)
         else:
             instance = self.get_object()
             if instance.group.name == SUPERADMIN_GROUP_NAME:
-                raise Exception("You Can't update permission for this role!!!")
+                raise PermissionDenied("You Can't update permission for this role!!!")
             serializer_data = super().update(request, *args, **kwargs)
        
         response = rh.ResponseMsg(
@@ -189,7 +193,21 @@ class PermissionStatusView(ListModelMixin, UpdateModelMixin, GenericViewSet):
         return Response(response.response, status=status.HTTP_200_OK)
 
     def validate_data(self, data, schema_name):
+        if not isinstance(data, list):
+            raise ValidationError("`data` must be a list of permissions.")
+
         for permission_data in data:
+            if not isinstance(permission_data, dict):
+                raise ValidationError(
+                    "Each permission entry must be an object with `id` and `status`."
+                )
+            if "id" not in permission_data or "status" not in permission_data:
+                raise ValidationError(
+                    "Each permission entry requires both `id` and `status`."
+                )
+            if not isinstance(permission_data["status"], bool):
+                raise ValidationError("`status` must be true or false.")
+
             try:
                 if schema_name:
                     with schema_context(schema_name):
@@ -197,7 +215,7 @@ class PermissionStatusView(ListModelMixin, UpdateModelMixin, GenericViewSet):
                             id=permission_data["id"]
                         )
                         if obj.group.name == SUPERADMIN_GROUP_NAME:
-                            raise Exception(
+                            raise PermissionDenied(
                                 "You Can't update permission for this role!!!"
                             )
                 else:
@@ -205,7 +223,7 @@ class PermissionStatusView(ListModelMixin, UpdateModelMixin, GenericViewSet):
                         id=permission_data["id"]
                     )
                     if obj.group.name == SUPERADMIN_GROUP_NAME:
-                        raise Exception(
+                        raise PermissionDenied(
                             "You Can't update permission for this role!!!"
                         )
             except RoleBasePermissionsStatus.DoesNotExist:
@@ -226,28 +244,24 @@ class PermissionStatusView(ListModelMixin, UpdateModelMixin, GenericViewSet):
             raise NotFound("please, pass all permissions data!!!")
         self.validate_data(data=data, schema_name=schema_name)
         instances = []
-        for permission_data in data:
-            try:
-                if schema_name:
-                    with schema_context(schema_name):
+
+        # One transaction for the whole batch: a bad row half way through must
+        # not leave the role with a partially applied permission set.
+        with transaction.atomic():
+            for permission_data in data:
+                try:
+                    with schema_context(schema_name) if schema_name else nullcontext():
                         obj = RoleBasePermissionsStatus.objects.get(
                             id=permission_data["id"]
                         )
                         obj.status = permission_data["status"]
-                        obj.save()
+                        obj.save(update_fields=["status", "updated_at"])
                         instances.append(obj)
-                else:
-                    obj = RoleBasePermissionsStatus.objects.get(
-                        id=permission_data["id"]
-                    )
-                    obj.status = permission_data["status"]
-                    obj.save()
-                    instances.append(obj)
 
-            except RoleBasePermissionsStatus.DoesNotExist:
-                raise NotFound(
-                    "All permissions Doesn't exist in database, Please check!!!"
-                )
+                except RoleBasePermissionsStatus.DoesNotExist:
+                    raise NotFound(
+                        "All permissions Doesn't exist in database, Please check!!!"
+                    )
 
         serializer = PermissionsStausSerializer(instances, many=True)
         response = rh.ResponseMsg(

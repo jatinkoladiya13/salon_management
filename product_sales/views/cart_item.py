@@ -28,10 +28,11 @@ class CartItemViewSet(viewsets.ModelViewSet):
         """
         return CartItem.objects.filter(user=self.request.user)
 
-    def get_permission_classes(self):
-        if self.action == "destroy":
-            return [IsAdmin()]
-        return super().get_permission_classes()
+    def get_permissions(self):
+        # Every action here is already scoped to the requesting user's own cart
+        # by get_queryset(), so owning the row is the authorisation - a customer
+        # has to be able to remove their own item.
+        return super().get_permissions()
 
     def list(self, request, *args, **kwargs):
         serializer = super().list(request, *args, **kwargs)

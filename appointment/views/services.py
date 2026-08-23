@@ -12,10 +12,19 @@ from ..serializers import (
 )
 
 from utils.pagination import CustomPageNumberPagination
-from utils.permissions import IsAdmin, IsAdminOrStaff
+from utils.permissions import IsPublicSchemaSuperUser, CustomPermission
 import utils.response_handler as rh
 
-
+from core.constants import (
+    READ_SERVICES,
+    CREATE_SERVICES,
+    UPDATE_SERVICES,
+    DELETE_SERVICES,
+    READ_STAFF_SERVICES,
+    CREATE_STAFF_SERVICES,
+    UPDATE_STAFF_SERVICES,
+    DELETE_STAFF_SERVICES,
+)
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
@@ -27,14 +36,26 @@ class ServiceViewSet(viewsets.ModelViewSet):
     search_fields = ["service_name", "description"]
     filterset_fields = ["is_active", "price", "duration"]
 
-    def get_permission_classes(self):
+    def get_permissions(self):
+        permission_classes = [IsAuthenticated]
+
+        schema_name = self.request.GET.get("schema_name")
+        if schema_name:
+            permission_classes += [IsPublicSchemaSuperUser]
+
         if self.action in ["list", "retrieve"]:
-            return [IsAuthenticated()]
+            permission_classes += [CustomPermission(READ_SERVICES)]
+
+        elif self.action == "create":
+            permission_classes += [CustomPermission(CREATE_SERVICES)]
+
         elif self.action in ["create", "update", "partial_update"]:
-            return [IsAdminOrStaff()]
+            permission_classes += [CustomPermission(UPDATE_SERVICES)]
+
         elif self.action == "destroy":
-            return [IsAdmin()]
-        return super().get_permissions()
+            permission_classes += [CustomPermission(DELETE_SERVICES)]
+
+        return [permission() for permission in permission_classes]
 
     def list(self, request, *args, **kwargs):
         serializer = super().list(request, *args, **kwargs)
@@ -81,15 +102,27 @@ class StaffServiceViewSet(viewsets.ModelViewSet):
     search_fields = ["staff__username", "service__service_name", "service__description"]
     filterset_fields = ["staff", "service", "service__is_active", "service__price", "service__duration"]
  
-    def get_permission_classes(self):
-        if self.action in ["list", "retrieve"]:
-            return [IsAuthenticated()]
-        elif self.action in ["create", "update", "partial_update"]:
-            return [IsAdminOrStaff()]
-        elif self.action == "destroy":
-            return [IsAdmin()]
-        return super().get_permissions()
+    def get_permissions(self):
+        permission_classes = [IsAuthenticated]
 
+        schema_name = self.request.GET.get("schema_name")
+        if schema_name:
+            permission_classes += [IsPublicSchemaSuperUser]
+
+        if self.action in ["list", "retrieve"]:
+            permission_classes += [CustomPermission(READ_STAFF_SERVICES)]
+
+        elif self.action == "create":
+            permission_classes += [CustomPermission(CREATE_STAFF_SERVICES)]
+
+        elif self.action in ["create", "update", "partial_update"]:
+            permission_classes += [CustomPermission(UPDATE_STAFF_SERVICES)]
+
+        elif self.action == "destroy":
+            permission_classes += [CustomPermission(DELETE_STAFF_SERVICES)]
+
+        return [permission() for permission in permission_classes]
+    
     def list(self, request, *args, **kwargs):
         serializer = super().list(request, *args, **kwargs)
         response = rh.ResponseMsg(

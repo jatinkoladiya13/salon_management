@@ -4,10 +4,25 @@ from django_tenants.utils import get_tenant_model
 from django.core.management.base import BaseCommand
 from core.models import CustomGroup, RoleBasePermissions, RoleBasePermissionsStatus
 
+# Permissions that are set to True for TENANTUSER_GROUP_NAME
 TRUE_PERMISSIONS_FOR_TENANTUSER = [
+    CREATE_OWN_ACCOUNT_ONLY,
     READ_OWN_ACCOUNT_ONLY,
     UPDATE_OWN_ACCOUNT_ONLY,
-    DELETE_OWN_ACCOUNT_ONLY,
+
+    READ_SALON_DETAILS,
+    READ_SERVICES,
+    READ_STAFF_SERVICES,
+
+    READ_APPOINTMENTS,
+    CREATE_APPOINTMENTS,
+
+    READ_TIME_SLOTS,
+    READ_PRODUCT_CATEGORIES,
+    READ_PRODUCTS,
+    READ_INVOICES,
+    READ_STOCKS,
+    
 ]
 
 class Command(BaseCommand):

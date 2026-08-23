@@ -15,7 +15,7 @@ class PaymentConfigurationViewSet(viewsets.ModelViewSet):
     """
     queryset = PaymentConfiguration.objects.all()
     serializer_class = PaymentConfigurationSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAdmin]
 
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)

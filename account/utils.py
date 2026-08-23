@@ -39,5 +39,7 @@ def fun_valid_password(value):
         return "Password should contain at least one lowercase."
     
     if not any(char in '!@#$%^&*()_+}{":?><,./;' for char in value):
-        raise "Password should contain at least one special character."
+        return "Password should contain at least one special character."
+
+    return None
     

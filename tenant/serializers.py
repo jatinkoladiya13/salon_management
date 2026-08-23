@@ -14,7 +14,8 @@ class TeantSerializer(serializers.ModelSerializer):
 class TenantDomainSerializer(serializers.Serializer):
     tenant_name = serializers.CharField(required=True, max_length=100)
     domain_name = serializers.CharField(required=True, max_length =100)
-    salon  = serializers.IntegerField(required=True)
+    # SalonDetails.id is a UUID - an IntegerField here rejected every real id.
+    salon = serializers.UUIDField(required=True)
 
 class UpdateDomainSerializer(serializers.Serializer):
     domain_name = serializers.CharField(required=True, max_length=100)

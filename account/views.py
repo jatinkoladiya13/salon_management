@@ -1,33 +1,48 @@
-from rest_framework.permissions import IsAuthenticated
-from django_tenants.utils import schema_context
 from django.utils.http import urlsafe_base64_decode
+from django_tenants.utils import schema_context
+from django.db.models import Q
+
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
-from utils.pagination import CustomPageNumberPagination
-from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ViewSet
-from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.permissions import AllowAny
-from rest_framework import filters
+from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest_framework.views import APIView
+from rest_framework import filters
 from rest_framework import status
-from account.models import User, TwoFactorAuth
-from account.email import send_reset_password_email
+
 from account.custom_token import CustomPasswordResetTokenGenerator
-from django.db.models import Q
+from account.utils import generate_secret, generate_qr_code
+from account.email import send_reset_password_email
+from account.models import User, TwoFactorAuth
 from account.serializers import *
-from utils.permissions import IsPublicSchemaSuperUser, CustomPermission, IsTenantSuperAdmin
-import utils.response_handler as rh
+
 from utils.elasticsearch_client import es, data_to_elasticsearch
+from utils.pagination import CustomPageNumberPagination
+from utils.custom_exception import BadRequestException
+from utils.permissions import (
+    IsPublicSchemaSuperUser,
+    CustomPermission,
+    IsTenantSuperAdmin,
+    IsAdmin,
+)
+
+import utils.response_handler as rh
 from core.constants import (
     SUPERADMIN_GROUP_NAME,
+    READ_USERS_ACCOUNT,
+    CREATE_USERS_ACCOUNT,
+    UPDATE_USERS_ACCOUNT,
+    DELETE_USERS_ACCOUNT,
+    CREATE_OWN_ACCOUNT_ONLY,
     READ_OWN_ACCOUNT_ONLY,
     UPDATE_OWN_ACCOUNT_ONLY,
-    UPDATE_USERS_ACCOUNT,
+    DELETE_OWN_ACCOUNT_ONLY,
 )
-from account.utils import generate_secret, generate_qr_code
-from datetime import datetime
 import pyotp
+import uuid
 
 # Create your views here
 class LoginView(TokenObtainPairView):
@@ -59,7 +74,7 @@ class RefreshTokenView(TokenRefreshView):
         return Response(status=status.HTTP_200_OK, data=response.response)
 
 class RegisterCustomer(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsPublicSchemaSuperUser]
 
     def post(self, request):
         serializer = NewAccountCreateSerializer(data = request.data)
@@ -73,6 +88,9 @@ class RegisterCustomer(APIView):
         return Response(status=status.HTTP_200_OK, data=response.response)
 
 class GetInElasticsearchView(APIView):
+    # Re-indexing walks every user in the schema, so it is an admin operation,
+    # not something any signed-in customer should be able to trigger.
+    permission_classes = [IsAdmin]
 
     def post(self, request):
 
@@ -83,7 +101,6 @@ class GetInElasticsearchView(APIView):
         docs = []
         
         for user in User.objects.all():
-            print("indexing user:-", user.username)
             doc = {
                 "username": user.username,
                 "email": user.email,
@@ -187,11 +204,12 @@ class GetInElasticsearchView(APIView):
                 }
             })    
         
-        # No Allowed data to not show in search result
-        query["bool"]["must_not"].append({
-            "match": {"email": "jatinkoladiya130@gmail.com"},
-            "match": {"is_active": "false"},
-        })    
+        # Never surface these in search results. Two separate clauses: as a
+        # single dict the duplicate "match" key silently dropped the first one.
+        query["bool"]["must_not"].append(
+            {"match": {"email": "jatinkoladiya130@gmail.com"}}
+        )
+        query["bool"]["must_not"].append({"term": {"is_active": False}})
 
         # This is multiple value filter example if you want to filter with multiple status like active and inactive both then you can use this code
         # status = request.GET.get("status")
@@ -211,7 +229,15 @@ class GetInElasticsearchView(APIView):
 
         hits = results["hits"]["hits"]
 
-        user_ids = [int(hit["_id"]) for hit in hits]
+        # User ids are UUIDs; Elasticsearch returns them as strings. Anything
+        # that is no longer a valid id (stale index entry) is skipped rather
+        # than blowing up the whole search.
+        user_ids = []
+        for hit in hits:
+            try:
+                user_ids.append(uuid.UUID(str(hit["_id"])))
+            except (ValueError, TypeError, KeyError):
+                continue
 
         users = User.objects.filter(id__in=user_ids)
         serializer = UserSerializer(users, many=True)
@@ -236,23 +262,47 @@ class UserView(ModelViewSet):
     
     def get_permissions(self):
 
-        if self.action == "create":
-            return [AllowAny()]
-        
+        # Extra @action endpoints declare their own permission_classes, which
+        # the router has already applied to this instance. Overriding
+        # get_permissions() without honouring them silently dropped those
+        # checks - create_staff fell through to plain IsAuthenticated, letting
+        # any signed-in customer promote themselves to Staff.
+        extra_actions = {
+            action.__name__ for action in self.get_extra_actions()
+        }
+        if self.action in extra_actions:
+            return super().get_permissions()
+
         permission_classes = [IsAuthenticated]
-        
+
         schema_name = self.request.GET.get("schema_name")
         if schema_name:
-            permission_classes.append(IsPublicSchemaSuperUser)
+            permission_classes += [IsPublicSchemaSuperUser]
+
 
         if self.action in ["list", "retrieve"]:
-            permission_classes.append(CustomPermission(READ_OWN_ACCOUNT_ONLY))
+            permission_classes += [
+                CustomPermission(READ_USERS_ACCOUNT)
+                | CustomPermission(READ_OWN_ACCOUNT_ONLY)
+            ]
+
+        elif self.action == "create":
+            permission_classes += [
+                CustomPermission(CREATE_USERS_ACCOUNT)
+                | CustomPermission(CREATE_OWN_ACCOUNT_ONLY)
+            ]
 
         elif self.action in ["update", "partial_update"]:
-            permission_classes.append(CustomPermission(UPDATE_OWN_ACCOUNT_ONLY))
+                permission_classes += [
+                    CustomPermission(UPDATE_USERS_ACCOUNT)
+                    | CustomPermission(UPDATE_OWN_ACCOUNT_ONLY)
+                ]  
 
-        elif self.action in ["destroy", "delete_user_by_username"]:
-            permission_classes.append(IsTenantSuperAdmin)
+        elif self.action in ["destroy"]:
+            permission_classes += [
+                CustomPermission(DELETE_USERS_ACCOUNT)
+                | CustomPermission(DELETE_OWN_ACCOUNT_ONLY)
+            ]
 
         elif self.action == "manage_profile_picture" and schema_name:
             permission_classes.append(IsPublicSchemaSuperUser)
@@ -272,12 +322,6 @@ class UserView(ModelViewSet):
         ):
             return queryset.distinct()
         
-        print(
-            "group:-",
-            self.request.user.get_role,
-            self.request.user.is_superuser,
-        )
-
         if self.action in ["list", "retrieve"]:
             if is_permission(
                 self.request.user.get_role,
@@ -366,12 +410,7 @@ class UserView(ModelViewSet):
     def create_staff(self, request):
         serializer = StaffCreateSerializer(data=request.data)
         
-        schema_name = request.GET.get("schema_name")
-        if schema_name:
-            with schema_context(schema_name):
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
-        else:
+        with schema_context(request.tenant.schema_name):
             serializer.is_valid(raise_exception=True)
             serializer.save()
         
@@ -396,10 +435,13 @@ class ForgotPasswordViewSet(ViewSet):
 
         email = request.data.get("email", None)
 
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            raise BadRequestException("User not Found with this email!!!")
+        if not email:
+            raise BadRequestException("Email is required.")
+
+        # Deliberately identical response whether or not the account exists:
+        # answering "User not Found with this email" turns this endpoint into a
+        # way to enumerate which addresses are registered.
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
 
         if user:
             send_reset_password_email(user, request.tenant.schema_name)
@@ -423,12 +465,19 @@ class ForgotPasswordViewSet(ViewSet):
 
         serializer = ResetForgotPasswordSerializers(data=request.data)
         if serializer.is_valid():
-            uid =  urlsafe_base64_decode(request.data.get("uid")).decode()
+            # A hand-edited link gives a malformed uid; treat it as an invalid
+            # link instead of letting the decode/lookup raise a 500.
+            try:
+                uid = urlsafe_base64_decode(
+                    serializer.validated_data["uid"]
+                ).decode()
+                user = User.objects.filter(id=uuid.UUID(uid)).first()
+            except (ValueError, TypeError, UnicodeDecodeError):
+                raise BadRequestException("Invalid Link!!!")
 
-            user = User.objects.filter(id=uid).first()
             if user is None:
                 raise BadRequestException("Invalid Link!!!")
-            
+
             custom_token_generator = CustomPasswordResetTokenGenerator()
 
             is_valid = custom_token_generator.check_token(
@@ -495,10 +544,24 @@ class Verify2FAView(APIView):
     def post(self, request):
         otp = request.data.get("otp")
 
-        obj = TwoFactorAuth.objects.get(user=request.user)
+        if not otp:
+            response = rh.ResponseMsg({}, True, "OTP is required")
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST, data=response.response
+            )
+
+        obj = TwoFactorAuth.objects.filter(user=request.user).first()
+        if obj is None or not obj.secret:
+            response = rh.ResponseMsg(
+                {}, True, "2FA is not set up for this account. Call 2fa-setup first."
+            )
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST, data=response.response
+            )
+
         totp = pyotp.TOTP(obj.secret)
 
-        if totp.verify(otp):
+        if totp.verify(str(otp)):
             obj.is_enabled = True
             obj.save()
             response = rh.ResponseMsg(

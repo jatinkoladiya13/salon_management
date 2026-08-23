@@ -1,6 +1,10 @@
 from elasticsearch import Elasticsearch, helpers
 from decouple import config
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # es = Elasticsearch("http://localhost:9200")
 
 # Production configuration for Elastic Cloud
@@ -22,7 +26,7 @@ def data_to_elasticsearch(docs, index_name):
         docs,
         index=index_name
     )
-    print(f"Bulk indexing response: {bulk_response}")
+    logger.info("Bulk indexing response: %s", bulk_response)
     return bulk_response
 
 # For local development, you can run Elasticsearch using Docker:
