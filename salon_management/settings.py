@@ -14,6 +14,7 @@ from celery.schedules import crontab
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
+from urllib.parse import quote
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -270,7 +271,8 @@ REDIS_PORT = config("REDIS_PORT")
 REDIS_PASSWORD = config("REDIS_PASSWORD")
 REDIS_CHANNEL = config("REDIS_CHANNEL")
 
-CELERY_BROKER_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+REDIS_AUTH = f":{quote(REDIS_PASSWORD, safe='')}@" if REDIS_PASSWORD else ""
+CELERY_BROKER_URL = f"redis://{REDIS_AUTH}{REDIS_HOST}:{REDIS_PORT}/0"
 CELERY_RESULT_BACKEND = "django-db"
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -296,7 +298,9 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [(f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CHANNEL}")]
+            "hosts": [
+                (f"redis://{REDIS_AUTH}{REDIS_HOST}:{REDIS_PORT}/{REDIS_CHANNEL}")
+            ]
         },
     },
 }

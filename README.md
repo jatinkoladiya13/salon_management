@@ -180,6 +180,51 @@ python manage.py create_superuser
 
 ## Running the Services
 
+### Docker Compose
+
+After creating `.env` and configuring its database, JWT, Redis, and service
+credentials, start the API, PostgreSQL, Redis, Celery worker, and scheduler:
+
+```powershell
+docker compose up --build -d
+```
+
+The API is available on host port `8001`. If that port is already in use,
+choose another host port without changing the container:
+
+```powershell
+$env:WEB_PORT = "8001"
+docker compose up --build -d
+```
+
+Run the one-time project initializer after the application image is built:
+
+```powershell
+docker compose --profile setup run --rm setup
+```
+
+This creates the public tenant, platform superuser, template schema, and
+default tenant roles and permissions. It is intentionally a one-shot command
+and is not part of the normal web restart cycle.
+
+Apply migrations from the web container before first use:
+
+```powershell
+docker compose exec web python manage.py migrate_schemas --shared
+docker compose exec web python manage.py migrate_schemas --tenant
+```
+
+View service logs or stop the stack:
+
+```powershell
+docker compose logs -f web
+docker compose down
+```
+
+The Compose stack does not include Elasticsearch because the current client is
+configured for Elastic Cloud. Set `ELASTIC_CLOUD_ID` and `ELASTIC_API_KEY` in
+`.env` when search features are enabled.
+
 ### Django development server
 
 ```powershell
