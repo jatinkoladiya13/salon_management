@@ -14,6 +14,7 @@ from celery.schedules import crontab
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
+from urllib.parse import quote
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -29,11 +30,11 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 # Defaults stay development-friendly; set DEBUG=False and ALLOWED_HOSTS in the
 # environment for a real deployment.
-DEBUG = config("DEBUG", default=True, cast=bool)
+DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in config("ALLOWED_HOSTS", default="*").split(",")
+    for host in config("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
     if host.strip()
 ]
 
@@ -200,6 +201,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -269,8 +271,10 @@ REDIS_HOST = config("REDIS_HOST")
 REDIS_PORT = config("REDIS_PORT")
 REDIS_PASSWORD = config("REDIS_PASSWORD")
 REDIS_CHANNEL = config("REDIS_CHANNEL")
+REDIS_SCHEME = "rediss" if config("REDIS_USE_TLS", default=False, cast=bool) else "redis"
 
-CELERY_BROKER_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+REDIS_AUTH = f":{quote(REDIS_PASSWORD, safe='')}@" if REDIS_PASSWORD else ""
+CELERY_BROKER_URL = f"{REDIS_SCHEME}://{REDIS_AUTH}{REDIS_HOST}:{REDIS_PORT}/0"
 CELERY_RESULT_BACKEND = "django-db"
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -296,7 +300,9 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [(f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CHANNEL}")]
+            "hosts": [
+                (f"{REDIS_SCHEME}://{REDIS_AUTH}{REDIS_HOST}:{REDIS_PORT}/{REDIS_CHANNEL}")
+            ]
         },
     },
 }

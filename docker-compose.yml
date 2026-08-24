@@ -1,0 +1,264 @@
+services:
+
+  # ============================================================
+  # Django / DRF / WebSocket application
+  # ============================================================
+  web:
+    build:
+      context: .
+
+    image: salon-management:latest
+
+    env_file:
+      - .env
+
+    environment:
+      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST:-db}
+      DEFAULT_DB_PORT: ${DEFAULT_DB_PORT:-5432}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_USERNAME: default
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-salon_local_redis}
+      REDIS_USE_TLS: ${REDIS_USE_TLS:-False}
+
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for PostgreSQL..."
+        until nc -z "$$DEFAULT_DB_HOST" "$$DEFAULT_DB_PORT"; do
+          sleep 2
+        done
+
+        echo "Starting Daphne..."
+        exec daphne \
+          -b 0.0.0.0 \
+          -p 8000 \
+          salon_management.asgi:application
+
+    ports:
+      - "8001:8000"
+
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+
+    restart: unless-stopped
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:8000/health/"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ============================================================
+  # Celery Worker
+  # ============================================================
+  worker:
+    image: salon-management:latest
+
+    env_file:
+      - .env
+
+    environment:
+      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST:-db}
+      DEFAULT_DB_PORT: ${DEFAULT_DB_PORT:-5432}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_USERNAME: default
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-salon_local_redis}
+      REDIS_USE_TLS: ${REDIS_USE_TLS:-False}
+
+    command:
+      - celery
+      - -A
+      - salon_management
+      - worker
+      - -l
+      - info
+
+    restart: unless-stopped
+
+  # ============================================================
+  # Celery Beat
+  # ============================================================
+  beat:
+    image: salon-management:latest
+
+    env_file:
+      - .env
+
+    environment:
+      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST:-db}
+      DEFAULT_DB_PORT: ${DEFAULT_DB_PORT:-5432}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_USERNAME: default
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-salon_local_redis}
+      REDIS_USE_TLS: ${REDIS_USE_TLS:-False}
+
+    command:
+      - celery
+      - -A
+      - salon_management
+      - beat
+      - -l
+      - info
+
+    restart: unless-stopped
+
+
+  # ============================================================
+  # Database setup / migrations
+  # ============================================================
+  setup:
+    image: salon-management:latest
+
+    profiles:
+      - setup
+
+    env_file:
+      - .env
+
+    environment:
+      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST:-db}
+      DEFAULT_DB_PORT: ${DEFAULT_DB_PORT:-5432}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_USERNAME: default
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-salon_local_redis}
+      REDIS_USE_TLS: ${REDIS_USE_TLS:-False}
+
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for PostgreSQL..."
+        until nc -z "$$DEFAULT_DB_HOST" "$$DEFAULT_DB_PORT"; do
+          sleep 2
+        done
+
+        echo "Running shared migrations..."
+        python manage.py migrate_schemas --shared
+
+        echo "Running tenant migrations..."
+        python manage.py migrate_schemas --tenant
+
+        echo "Running project setup..."
+        python manage.py setup_project
+
+        echo "Collecting static files..."
+        python manage.py collectstatic --noinput
+
+    volumes:
+      - static_data:/app/staticfiles
+
+  # ============================================================
+  # PostgreSQL
+  #
+  # Local development only.
+  # AWS production → RDS PostgreSQL
+  # ============================================================
+  db:
+    image: postgres:16-alpine
+
+    profiles:
+      - local
+
+    environment:
+      POSTGRES_DB: ${DEFAULT_DB_NAME:?Set DEFAULT_DB_NAME in .env}
+      POSTGRES_USER: ${DEFAULT_DB_USER:?Set DEFAULT_DB_USER in .env}
+      POSTGRES_PASSWORD: ${DEFAULT_DB_PASSWORD:?Set DEFAULT_DB_PASSWORD in .env}
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    restart: unless-stopped
+
+
+  # ============================================================
+  # Redis
+  #
+  # Local development only.
+  # AWS production → ElastiCache Redis
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+
+    profiles:
+      - local
+
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server \
+            --requirepass "$$REDIS_PASSWORD"
+        else
+          exec redis-server
+        fi
+
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          redis-cli
+          $${REDIS_PASSWORD:+-a "$${REDIS_PASSWORD}"}
+          ping | grep PONG
+
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+
+    depends_on:
+      web:
+        condition: service_healthy
+
+    ports:
+      - "80:80"
+
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_data:/app/staticfiles:ro
+      - media_data:/app/media:ro
+
+    restart: unless-stopped
+
+
+# ==============================================================
+# Persistent Docker volumes
+# ==============================================================
+volumes:
+  media_data:
+  static_data:
+  postgres_data:
+  redis_data:

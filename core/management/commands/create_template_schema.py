@@ -30,6 +30,8 @@ class Command(BaseCommand):
             subscription_status="active",
         )
 
+        tenant.create_schema(check_if_exists=True, verbosity=0)
+
         Domain.objects.get_or_create(
             domain=self.TEMPLATE_DOMAIN,
             defaults={

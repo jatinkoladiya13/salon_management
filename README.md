@@ -178,7 +178,73 @@ Create a superuser when required by the deployment:
 python manage.py create_superuser
 ```
 
+## Docker deployment
+
+The Compose file supports both local development and EC2 deployment. Local PostgreSQL and Redis are enabled with the `local` profile:
+
+```powershell
+docker compose --profile local up --build -d
+docker compose --profile local --profile setup run --rm setup
+```
+
+For EC2, create `.env` from values stored in AWS Systems Manager Parameter Store or Secrets Manager. Do not copy production secrets into the repository or image. The file must contain the settings required by `salon_management/settings.py`, including `SECRET_KEY`, database credentials, `REDIS_PASSWORD`, JWT expiry values, payment credentials, and email settings. Set `DEBUG=False`, an explicit `ALLOWED_HOSTS`, and production `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS`. Set `DEFAULT_DB_HOST` to the RDS endpoint and `REDIS_HOST` to the ElastiCache endpoint; set `REDIS_USE_TLS=True` when ElastiCache in-transit encryption is enabled.
+
+Deploy the AWS stack with the same Compose file. Do not enable the `local` profile; the application will connect to the managed AWS services from `.env`:
+
+```bash
+docker compose build
+docker compose --profile setup run --rm setup
+docker compose up -d
+```
+
+Nginx runs on port 80 and proxies API and WebSocket traffic to Daphne. Configure an HTTPS Application Load Balancer with an ACM certificate in front of this port, restrict the EC2 security group to the ALB security group, and forward the ALB health check to `/health/`. Nginx serves the static and media volumes populated by the setup command.
+
 ## Running the Services
+
+### Docker Compose
+
+After creating `.env` and configuring its database, JWT, Redis, and service
+credentials, start the local API, PostgreSQL, Redis, Celery worker, and scheduler:
+
+```powershell
+docker compose --profile local up --build -d
+```
+
+The API is available on host port `8001`. If that port is already in use,
+choose another host port without changing the container:
+
+```powershell
+$env:WEB_PORT = "8001"
+docker compose up --build -d
+```
+
+Run the one-time project initializer after the application image is built:
+
+```powershell
+docker compose --profile local --profile setup run --rm setup
+```
+
+This creates the public tenant, platform superuser, template schema, and
+default tenant roles and permissions. It is intentionally a one-shot command
+and is not part of the normal web restart cycle.
+
+Apply migrations from the web container before first use:
+
+```powershell
+docker compose exec web python manage.py migrate_schemas --shared
+docker compose exec web python manage.py migrate_schemas --tenant
+```
+
+View service logs or stop the stack:
+
+```powershell
+docker compose logs -f web
+docker compose down
+```
+
+The Compose stack does not include Elasticsearch because the current client is
+configured for Elastic Cloud. Set `ELASTIC_CLOUD_ID` and `ELASTIC_API_KEY` in
+`.env` when search features are enabled.
 
 ### Django development server
 
