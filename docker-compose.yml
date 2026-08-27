@@ -13,12 +13,13 @@ services:
       - .env
 
     environment:
-      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST:-db}
+      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST}
       DEFAULT_DB_PORT: ${DEFAULT_DB_PORT:-5432}
-      REDIS_HOST: ${REDIS_HOST:-redis}
+    
+      REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_USERNAME: default
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-salon_local_redis}
+      REDIS_USERNAME: ${REDIS_USERNAME:-default}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_USE_TLS: ${REDIS_USE_TLS:-False}
 
     command:
@@ -68,12 +69,13 @@ services:
       - .env
 
     environment:
-      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST:-db}
+      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST}
       DEFAULT_DB_PORT: ${DEFAULT_DB_PORT:-5432}
-      REDIS_HOST: ${REDIS_HOST:-redis}
+
+      REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_USERNAME: default
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-salon_local_redis}
+      REDIS_USERNAME: ${REDIS_USERNAME:-default}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_USE_TLS: ${REDIS_USE_TLS:-False}
 
     command:
@@ -96,12 +98,13 @@ services:
       - .env
 
     environment:
-      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST:-db}
+      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST}
       DEFAULT_DB_PORT: ${DEFAULT_DB_PORT:-5432}
-      REDIS_HOST: ${REDIS_HOST:-redis}
+
+      REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_USERNAME: default
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-salon_local_redis}
+      REDIS_USERNAME: ${REDIS_USERNAME:-default}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_USE_TLS: ${REDIS_USE_TLS:-False}
 
     command:
@@ -128,12 +131,13 @@ services:
       - .env
 
     environment:
-      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST:-db}
+      DEFAULT_DB_HOST: ${DEFAULT_DB_HOST}
       DEFAULT_DB_PORT: ${DEFAULT_DB_PORT:-5432}
-      REDIS_HOST: ${REDIS_HOST:-redis}
+
+      REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_USERNAME: default
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-salon_local_redis}
+      REDIS_USERNAME: ${REDIS_USERNAME:-default}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_USE_TLS: ${REDIS_USE_TLS:-False}
 
     command:
@@ -161,81 +165,8 @@ services:
       - static_data:/app/staticfiles
 
   # ============================================================
-  # PostgreSQL
-  #
-  # Local development only.
-  # AWS production → RDS PostgreSQL
-  # ============================================================
-  db:
-    image: postgres:16-alpine
-
-    profiles:
-      - local
-
-    environment:
-      POSTGRES_DB: ${DEFAULT_DB_NAME:?Set DEFAULT_DB_NAME in .env}
-      POSTGRES_USER: ${DEFAULT_DB_USER:?Set DEFAULT_DB_USER in .env}
-      POSTGRES_PASSWORD: ${DEFAULT_DB_PASSWORD:?Set DEFAULT_DB_PASSWORD in .env}
-
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    restart: unless-stopped
-
-
-  # ============================================================
-  # Redis
-  #
-  # Local development only.
-  # AWS production → ElastiCache Redis
-  # ============================================================
-  redis:
-    image: redis:7-alpine
-
-    profiles:
-      - local
-
-    command:
-      - sh
-      - -c
-      - |
-        if [ -n "$$REDIS_PASSWORD" ]; then
-          exec redis-server \
-            --requirepass "$$REDIS_PASSWORD"
-        else
-          exec redis-server
-        fi
-
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-
-    volumes:
-      - redis_data:/data
-
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - >
-          redis-cli
-          $${REDIS_PASSWORD:+-a "$${REDIS_PASSWORD}"}
-          ping | grep PONG
-
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-    restart: unless-stopped
-
+  # Nginx
+  # ============================================================  
   nginx:
     image: nginx:1.27-alpine
 
@@ -260,5 +191,3 @@ services:
 volumes:
   media_data:
   static_data:
-  postgres_data:
-  redis_data:
