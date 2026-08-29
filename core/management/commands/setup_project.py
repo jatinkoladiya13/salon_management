@@ -50,6 +50,10 @@ class Command(BaseCommand):
                     "schema_name": TEMPLATE_SCHEMA
                 }
             },
+
+            {
+                "name": "create_subscription_plans",
+            },
         ]
 
         for command in commands:
