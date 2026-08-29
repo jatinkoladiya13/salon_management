@@ -1,6 +1,7 @@
 from django.utils.http import urlsafe_base64_decode
 from django_tenants.utils import schema_context
 from django.db.models import Q
+import logging
 
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
@@ -43,6 +44,8 @@ from core.constants import (
 )
 import pyotp
 import uuid
+
+logger = logging.getLogger(__name__)
 
 # Create your views here
 class LoginView(TokenObtainPairView):
@@ -431,22 +434,38 @@ class ForgotPasswordViewSet(ViewSet):
         """
         Send reset password link to email
         """
+        logger.info("=" * 50)
+        logger.info("Password reset request initiated")
+        
         msg = "If the email is valid, a password reset link will be sent to the email."
 
         email = request.data.get("email", None)
+        logger.info(f"Email provided: {email}")
 
         if not email:
+            logger.warning("Password reset attempted without email")
             raise BadRequestException("Email is required.")
 
         # Deliberately identical response whether or not the account exists:
         # answering "User not Found with this email" turns this endpoint into a
         # way to enumerate which addresses are registered.
+        logger.info(f"Searching for active user with email: {email}")
         user = User.objects.filter(email__iexact=email, is_active=True).first()
 
         if user:
-            send_reset_password_email(user, request.tenant.schema_name)
+            logger.info(f"User found: {user.id} - {user.email}")
+            logger.info(f"Sending password reset email to: {email}")
+            try:
+                send_reset_password_email(user, request.tenant.schema_name)
+                logger.info(f"Password reset email sent successfully to: {email}")
+            except Exception as e:
+                logger.error(f"Failed to send password reset email to {email}: {str(e)}", exc_info=True)
+        else:
+            logger.info(f"No active user found with email: {email} (This is intentional for security)")
 
+        logger.info("Returning generic success response")
         response = rh.ResponseMsg({}, False, msg)
+        logger.info("=" * 50)
         return Response(
             status=status.HTTP_200_OK,
             data=response.response,
