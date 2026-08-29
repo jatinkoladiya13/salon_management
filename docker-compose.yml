@@ -31,6 +31,18 @@ services:
           sleep 2
         done
 
+        echo "Running shared migrations..."
+        python manage.py migrate_schemas --shared
+
+        echo "Running tenant migrations..."
+        python manage.py migrate_schemas --tenant
+
+        echo "Running project setup..."
+        python manage.py setup_project
+
+        echo "Collecting static files..."
+        python manage.py collectstatic --noinput
+
         echo "Starting Daphne..."
         exec daphne \
           -b 0.0.0.0 \
