@@ -64,7 +64,8 @@ services:
           "CMD",
           "curl",
           "-f",
-          "http://localhost:8000/health/"
+          "Host: 13.53.37.112",
+          "http://127.0.0.1:8000/health/"
         ]
       interval: 30s
       timeout: 10s
