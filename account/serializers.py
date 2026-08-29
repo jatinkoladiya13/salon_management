@@ -144,7 +144,7 @@ class NewAccountCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Workspace name already exists.")
         return value
     
-    def validate_user_email(self, value):
+    def validate_organization_email(self, value):
         public_mail = [
             "gmail",
             "yahoo",
@@ -159,7 +159,7 @@ class NewAccountCreateSerializer(serializers.Serializer):
         ]
         if any(f"@{mail}" in value for mail in public_mail):
             raise serializers.ValidationError(
-                "Please enter your Bussiness email address in user email field."
+                "Please enter your Bussiness email address in organization email field."
             )
         return value
     
@@ -212,6 +212,7 @@ class NewAccountCreateSerializer(serializers.Serializer):
                     first_name=validated_data.get("user_first_name"),
                     last_name=validated_data.get("user_last_name"),
                     is_active=True,
+                    is_verify=True
                 )
 
         return validated_data
@@ -285,7 +286,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
             last_name=validated_data.get("last_name"),
             date_of_birth = validated_data.get("date_of_birth"),
             mobile = validated_data.get("mobile"),
-            is_active=True,
+            is_active=True
         )
         user.save()
         return user
