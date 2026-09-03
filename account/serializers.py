@@ -77,6 +77,7 @@ class LoginSerializer(TokenObtainPairSerializer):
     
 
 class NewAccountCreateSerializer(serializers.Serializer):
+    schema_name = serializers.CharField(read_only=True)
     user_email = serializers.EmailField(required=True)
     user_first_name  = serializers.CharField(max_length=255, required=True)
     user_last_name = serializers.CharField(max_length=255, required=True)
@@ -214,6 +215,8 @@ class NewAccountCreateSerializer(serializers.Serializer):
                     is_active=True,
                     is_verify=True
                 )
+
+            validated_data["schema_name"] = tenant.schema_name
 
         return validated_data
     
