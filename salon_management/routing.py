@@ -5,6 +5,9 @@ from appointment.consumers import NotificationConsumer
 
 
 websocket_urlpatterns = [
-    re_path("ws/notifications/", NotificationConsumer.as_asgi())
+    re_path(
+        r"^(?:(?P<tenant_schema>[\w-]+)/)?ws/notifications/$",
+        NotificationConsumer.as_asgi(),
+    )
     
 ]
