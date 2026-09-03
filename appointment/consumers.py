@@ -1,15 +1,18 @@
+import logging
+
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, InvalidToken, TokenError
 
 from django_tenants.utils import schema_context
-from django.contrib.auth import get_user_model
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.db import database_sync_to_async
 
 from urllib.parse import parse_qs
 
-from tenant.models import Domain
+from tenant.models import Domain, Tenant
 from utils.custom_authentication import CustomJWTAuthentication
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationConsumer(AsyncJsonWebsocketConsumer):
@@ -20,8 +23,14 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
         if not token:
             await self.close()
             return
-        
-        authenticated = await self.authenticate_token(token, self.get_host())
+
+        host = self.get_host()
+        tenant_schema = self.scope.get("url_route", {}).get("kwargs", {}).get(
+            "tenant_schema"
+        )
+        authenticated = await self.authenticate_token(
+            token, host, tenant_schema
+        )
         if authenticated is None:
             await self.close()
             return
@@ -52,17 +61,27 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
         return None
 
     @database_sync_to_async
-    def authenticate_token(self, token, host):
-        if not host:
-            return None
-
+    def authenticate_token(self, token, host, tenant_schema=None):
         try:
             with schema_context("public"):
-                domain = Domain.objects.select_related("tenant").get(domain=host)
-                tenant = domain.tenant
-
                 authentication = CustomJWTAuthentication()
                 validated_token = authentication.get_validated_token(token)
+                token_schema_name = validated_token.payload.get("schema_name")
+                if not token_schema_name:
+                    return None
+
+                if tenant_schema and tenant_schema != token_schema_name:
+                    return None
+
+                tenant = Tenant.objects.get(schema_name=token_schema_name)
+
+                if host:
+                    domain = Domain.objects.filter(domain=host).select_related(
+                        "tenant"
+                    ).first()
+                    if domain and domain.tenant.schema_name != token_schema_name:
+                        return None
+
                 authentication.check_schema_name(
                     validated_token.payload, tenant.schema_name
                 )
@@ -71,7 +90,14 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
                 user = authentication.get_user(validated_token)
 
             return user, tenant.schema_name
-        except (AuthenticationFailed, Domain.DoesNotExist, InvalidToken, TokenError):
+        except (
+            AuthenticationFailed,
+            Domain.DoesNotExist,
+            Tenant.DoesNotExist,
+            InvalidToken,
+            TokenError,
+        ) as error:
+            logger.warning("WebSocket authentication rejected: %s", error)
             return None
         
     async def receive_json(self, content, **kwargs):
