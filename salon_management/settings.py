@@ -108,6 +108,7 @@ INSTALLED_APPS = list(SHARED_APPS) + [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     'django_tenants.middleware.main.TenantMainMiddleware',
+    'utils.custom_tenant_middleware.TenantMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -157,6 +158,7 @@ DATABASE_ROUTERS = (
 )
 TENANT_MODEL = "tenant.Tenant"
 TENANT_DOMAIN_MODEL = "tenant.Domain"
+SHOW_PUBLIC_IF_NO_TENANT_FOUND = True
 
 
 
