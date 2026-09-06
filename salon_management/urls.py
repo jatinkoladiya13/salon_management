@@ -17,8 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
+from decouple import config
 
 def health_check(request):
+    print("========== HEALTH CHECK ==========")
+    hs  = config("ALLOWED_HOSTS", default="localhost",)
+    print("ALLOWED_HOSTS:", hs)
     return JsonResponse({"status": "ok"})
 
 urlpatterns = [
