@@ -32,11 +32,11 @@ SECRET_KEY = config('SECRET_KEY')
 # environment for a real deployment.
 DEBUG = config("DEBUG", default=False, cast=bool)
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in config("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
-    if host.strip()
-]
+ALLOWED_HOSTS = config(
+    "ALLOWED_HOSTS",
+    default="localhost",
+    cast=lambda v: [x.strip() for x in v.split(",")]
+)
 
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', '')
 if CSRF_TRUSTED_ORIGINS:
