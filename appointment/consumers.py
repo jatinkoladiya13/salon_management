@@ -20,6 +20,9 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
         query_string = self.scope["query_string"].decode()
         token = parse_qs(query_string).get("token", [None])[0]
 
+        print("WS QUERY STRING:", self.scope.get("query_string"))
+        print("WS HEADERS:", self.scope.get("headers"))
+
         if not token:
             await self.close()
             return
