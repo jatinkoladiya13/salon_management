@@ -34,17 +34,24 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
             return
 
         host = self.get_host()
+
+        print("HOST:", host)
         tenant_schema = self.scope.get("url_route", {}).get("kwargs", {}).get(
             "tenant_schema"
         )
+        print("TENANT SCHEMA:", tenant_schema)
         authenticated = await self.authenticate_token(
             token, host, tenant_schema
         )
+        print("AUTHENTICATED:", authenticated)
         if authenticated is None:
             await self.close()
             return
-
+       
         self.user, self.schema_name = authenticated
+
+        print("USER:", self.user)
+        print("SCHEMA NAME:", self.schema_name)
     
         self.room_group_name = f"notification_{self.schema_name}_{self.user.id}"
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
