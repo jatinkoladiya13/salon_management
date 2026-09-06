@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 class NotificationConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
+        print("========== WEBSOCKET CONNECT ==========")
+        print("PATH:", self.scope.get("path"))
+        print("QUERY_STRING:", self.scope.get("query_string"))
+        print("USER:", self.scope.get("user"))
+        print("TENANT:", self.scope.get("tenant"))
+        print("HEADERS:", self.scope.get("headers"))
         query_string = self.scope["query_string"].decode()
         token = parse_qs(query_string).get("token", [None])[0]
 
