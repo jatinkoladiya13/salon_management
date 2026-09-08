@@ -106,14 +106,10 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
                 user = authentication.get_user(validated_token)
 
             return user, tenant.schema_name
-        except (
-            AuthenticationFailed,
-            Domain.DoesNotExist,
-            Tenant.DoesNotExist,
-            InvalidToken,
-            TokenError,
-        ) as error:
-            logger.warning("WebSocket authentication rejected: %s", error)
+        except Exception as error:
+            logger.exception("========== WEBSOCKET AUTH ERROR ==========")
+            logger.exception("ERROR TYPE: %s", type(error).__name__)
+            logger.exception("ERROR: %s", error)
             return None
         
     async def receive_json(self, content, **kwargs):
