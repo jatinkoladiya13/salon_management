@@ -2,7 +2,7 @@ import logging
 
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, InvalidToken, TokenError
 
-from django_tenants.utils import schema_context
+from django_tenants.utils import get_public_schema_name, schema_context
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -17,41 +17,26 @@ logger = logging.getLogger(__name__)
 
 class NotificationConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
-        print("========== WEBSOCKET CONNECT ==========")
-        print("PATH:", self.scope.get("path"))
-        print("QUERY_STRING:", self.scope.get("query_string"))
-        print("USER:", self.scope.get("user"))
-        print("TENANT:", self.scope.get("tenant"))
-        print("HEADERS:", self.scope.get("headers"))
         query_string = self.scope["query_string"].decode()
         token = parse_qs(query_string).get("token", [None])[0]
 
-        print("WS QUERY STRING:", self.scope.get("query_string"))
-        print("WS HEADERS:", self.scope.get("headers"))
-
         if not token:
+            logger.warning("WebSocket rejected: missing token")
             await self.close()
             return
 
         host = self.get_host()
-
-        print("HOST:", host)
         tenant_schema = self.scope.get("url_route", {}).get("kwargs", {}).get(
             "tenant_schema"
         )
-        print("TENANT SCHEMA:", tenant_schema)
         authenticated = await self.authenticate_token(
             token, host, tenant_schema
         )
-        print("AUTHENTICATED:", authenticated)
         if authenticated is None:
             await self.close()
             return
        
         self.user, self.schema_name = authenticated
-
-        print("USER:", self.user)
-        print("SCHEMA NAME:", self.schema_name)
     
         self.room_group_name = f"notification_{self.schema_name}_{self.user.id}"
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
@@ -84,18 +69,45 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
                 validated_token = authentication.get_validated_token(token)
                 token_schema_name = validated_token.payload.get("schema_name")
                 if not token_schema_name:
+                    logger.warning("WebSocket rejected: token has no schema_name")
                     return None
 
                 if tenant_schema and tenant_schema != token_schema_name:
+                    logger.warning(
+                        "WebSocket rejected: URL schema does not match token schema"
+                    )
                     return None
 
-                tenant = Tenant.objects.get(schema_name=token_schema_name)
+                try:
+                    tenant = Tenant.objects.get(schema_name=token_schema_name)
+                except Tenant.DoesNotExist:
+                    logger.warning(
+                        "WebSocket rejected: tenant schema %r does not exist",
+                        token_schema_name,
+                    )
+                    return None
 
+                # Tenants are resolved from the signed token (and the
+                # optional URL prefix), never from the hostname - every tenant
+                # is served from the same host in this deployment. Only a
+                # host that is a tenant's *own* domain may contradict the
+                # token; a shared host (bare IP, public domain) carries no
+                # tenant information and must not veto it.
                 if host:
                     domain = Domain.objects.filter(domain=host).select_related(
                         "tenant"
                     ).first()
-                    if domain and domain.tenant.schema_name != token_schema_name:
+                    if (
+                        domain
+                        and domain.tenant.schema_name != get_public_schema_name()
+                        and domain.tenant.schema_name != token_schema_name
+                    ):
+                        logger.warning(
+                            "WebSocket rejected: host %r belongs to schema %r, not %r",
+                            host,
+                            domain.tenant.schema_name,
+                            token_schema_name,
+                        )
                         return None
 
                 authentication.check_schema_name(
@@ -106,10 +118,15 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
                 user = authentication.get_user(validated_token)
 
             return user, tenant.schema_name
-        except Exception as error:
-            logger.exception("========== WEBSOCKET AUTH ERROR ==========")
-            logger.exception("ERROR TYPE: %s", type(error).__name__)
-            logger.exception("ERROR: %s", error)
+        except (AuthenticationFailed, InvalidToken, TokenError) as error:
+            logger.warning(
+                "WebSocket rejected during token authentication: %s: %s",
+                type(error).__name__,
+                error,
+            )
+            return None
+        except Exception:
+            logger.exception("Unexpected WebSocket authentication error")
             return None
         
     async def receive_json(self, content, **kwargs):
