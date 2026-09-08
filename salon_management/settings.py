@@ -38,6 +38,37 @@ ALLOWED_HOSTS = config(
     cast=lambda v: [x.strip() for x in v.split(",")]
 )
 
+# Origins allowed to open a WebSocket. Kept separate from ALLOWED_HOSTS, which
+# is a Host header allowlist and does not describe where browsers connect from
+# (a frontend on another domain is a valid origin but never a valid host).
+# Entries may be bare hostnames ("example.com", ".example.com" for subdomains)
+# or full origins ("https://app.example.com"). Falls back to ALLOWED_HOSTS.
+def _origin_list(value):
+    """Split a comma separated origin list, tolerating per-item quotes.
+
+    decouple only strips one outer pair of quotes, so a value written as
+    ``"a","b"`` still carries quotes around the inner items; leaving them in
+    place silently breaks hostname matching.
+    """
+    return [
+        item
+        for item in (x.strip().strip("\"'").rstrip("/") for x in value.split(","))
+        if item
+    ]
+
+
+CHANNELS_ALLOWED_ORIGINS = config(
+    "CHANNELS_ALLOWED_ORIGINS", default="", cast=_origin_list
+) or ALLOWED_HOSTS
+
+# Non-browser clients (mobile apps, Postman, wscat) send no Origin header.
+# Allowing them is safe here because WebSocket auth uses a JWT passed in the
+# query string rather than an ambient cookie, so a hostile page cannot forge a
+# connection on a victim's behalf. Set to False if that ever changes.
+CHANNELS_ALLOW_MISSING_ORIGIN = config(
+    "CHANNELS_ALLOW_MISSING_ORIGIN", default=True, cast=bool
+)
+
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', '')
 if CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS = [s.strip() for s in CSRF_TRUSTED_ORIGINS.split(',')]

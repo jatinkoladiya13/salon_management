@@ -17,12 +17,16 @@ Including another URLconf
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
-from decouple import config
+from django.conf import settings
 
 def health_check(request):
+    # Report the effective settings, not the raw env string: ALLOWED_HOSTS
+    # gates the Host header while CHANNELS_ALLOWED_ORIGINS gates the WebSocket
+    # Origin header, and confusing the two is what silently kills /ws/ traffic.
     print("========== HEALTH CHECK ==========")
-    hs  = config("ALLOWED_HOSTS", default="localhost",)
-    print("ALLOWED_HOSTS:", hs)
+    print("ALLOWED_HOSTS:", settings.ALLOWED_HOSTS)
+    print("CHANNELS_ALLOWED_ORIGINS:", settings.CHANNELS_ALLOWED_ORIGINS)
+    print("CHANNELS_ALLOW_MISSING_ORIGIN:", settings.CHANNELS_ALLOW_MISSING_ORIGIN)
     return JsonResponse({"status": "ok"})
 
 urlpatterns = [
