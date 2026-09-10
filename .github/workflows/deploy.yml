@@ -35,7 +35,6 @@ jobs:
       - name: Create environment file
         env:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-          ENV_FILE: ${{ secrets.ENV_FILE }}
 
         run: |
           set -Eeuo pipefail
@@ -49,12 +48,53 @@ jobs:
 
           cd "${DEPLOY_PATH}"
 
-          if [ -z "${ENV_FILE:-}" ]; then
-            echo "ERROR: ENV_FILE secret is empty or not configured"
-            exit 1
-          fi
+          cat > .env <<EOF
+        
+          SECRET_KEY=${{ secrets.SECRET_KEY }}
+          ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
+          CHANNELS_ALLOWED_ORIGINS=${{ secrets.CHANNELS_ALLOWED_ORIGINS }}
+          CHANNELS_ALLOW_MISSING_ORIGIN = ${{ secrets.CHANNELS_ALLOW_MISSING_ORIGIN }}        
+          DEBUG=${{ secrets.DEBUG }}
 
-          printf '%s\n' "$ENV_FILE" > .env
+          DEFAULT_DB_NAME=${{ secrets.DEFAULT_DB_NAME }}
+          DEFAULT_DB_USER=${{ secrets.DEFAULT_DB_USER }}
+          DEFAULT_DB_PASSWORD=${{ secrets.DEFAULT_DB_PASSWORD }}
+          DEFAULT_DB_HOST=${{ secrets.DEFAULT_DB_HOST }}
+          DEFAULT_DB_PORT=${{ secrets.DEFAULT_DB_PORT }}
+
+          ACCESS_TOKEN_EXPIRE_TIME_IN_MIN=${{ secrets.ACCESS_TOKEN_EXPIRE_TIME_IN_MIN }}
+          REFRESH_TOKEN_EXPIRE_TIME_IN_MIN=${{ secrets.REFRESH_TOKEN_EXPIRE_TIME_IN_MIN }}
+
+          HTTP_PROXY=${{ secrets.HTTP_PROXY }}
+          HOST_URI=${{ secrets.HOST_URI }}
+          
+          REDIS_HOST=${{ secrets.REDIS_HOST }}
+          REDIS_PORT=${{ secrets.REDIS_PORT }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          REDIS_CHANNEL=${{ secrets.REDIS_CHANNEL }}
+
+          SUPERUSER_USERNAME=${{ secrets.SUPERUSER_USERNAME }}
+          SUPERUSER_EMAIL=${{ secrets.SUPERUSER_EMAIL }}
+          SUPERUSER_PASSWORD=${{ secrets.SUPERUSER_PASSWORD }}
+
+          ELASTIC_CLOUD_ID=${{ secrets.ELASTIC_CLOUD_ID }}
+          ELASTIC_USERNAME=${{ secrets.ELASTIC_USERNAME }}
+          ELASTIC_PASSWORD=${{ secrets.ELASTIC_PASSWORD }}
+
+          STRIPE_LIVE_MODE=${{ secrets.STRIPE_LIVE_MODE }}
+          STRIPE_PUBLIC_KEY=${{ secrets.STRIPE_PUBLIC_KEY }}
+          STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+          DJSTRIPE_WEBHOOK_SECRET=${{ secrets.DJSTRIPE_WEBHOOK_SECRET }}
+
+          EMAIL_HOST=${{ secrets.EMAIL_HOST }}
+          EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}
+          EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}
+          EMAIL_PORT=${{ secrets.EMAIL_PORT }}
+          EMAIL_USE_TLS=${{ secrets.EMAIL_USE_TLS }}
+          DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}
+
+          EOF
+
           chmod 600 .env
 
           if [ ! -s .env ]; then
@@ -62,25 +102,7 @@ jobs:
             exit 1
           fi
 
-          for required_key in \
-            SECRET_KEY \
-            DEFAULT_DB_NAME \
-            DEFAULT_DB_USER \
-            DEFAULT_DB_PASSWORD \
-            DEFAULT_DB_HOST \
-            DEFAULT_DB_PORT \
-            REDIS_HOST \
-            REDIS_PORT \
-            REDIS_CHANNEL \
-            ACCESS_TOKEN_EXPIRE_TIME_IN_MIN \
-            REFRESH_TOKEN_EXPIRE_TIME_IN_MIN; do
-            if ! grep -Eq "^[[:space:]]*${required_key}=" .env; then
-              echo "ERROR: Missing required .env key: ${required_key}"
-              exit 1
-            fi
-          done
-
-          echo ".env file created successfully"
+          echo ".env file created successfully from individual GitHub secrets"
       
       # ============================================================
       # 3. Build and start services with Docker Compose
