@@ -15,38 +15,42 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout repository without cleaning uploads
+      # ============================================================
+      # 1. Checkout code
+      # ============================================================
+      - name: Reclaim workspace ownership
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}" 2>/dev/null || true
+
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           # Never run git clean here: media/ contains user uploads.
           clean: false
           fetch-depth: 0
 
-      - name: Deploy application
+      # ============================================================
+      # 2. Create environment file
+      # ============================================================
+      - name: Create environment file
         env:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           ENV_FILE: ${{ secrets.ENV_FILE }}
+
         run: |
-          set -eu
+          set -Eeuo pipefail
 
-          show_logs() {
-            echo "===== docker compose ps ====="
-            sudo -n docker compose ps || true
-            echo "===== docker compose logs (last 200 lines) ====="
-            sudo -n docker compose logs --tail=200 || true
-          }
+          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
 
-          trap show_logs EXIT
-
-          cd "${DEPLOY_PATH:-$GITHUB_WORKSPACE}"
-
-          if ! sudo -n true; then
-            echo "The GitHub runner user needs passwordless sudo access for Docker"
-            exit 1
+          if [ ! -d "${DEPLOY_PATH}" ]; then
+            echo "Deploy directory does not exist: ${DEPLOY_PATH}"
+            sudo -n mkdir -p "${DEPLOY_PATH}"
           fi
 
+          cd "${DEPLOY_PATH}"
+
           if [ -z "${ENV_FILE:-}" ]; then
-            echo "ENV_FILE secret is empty or not configured"
+            echo "ERROR: ENV_FILE secret is empty or not configured"
             exit 1
           fi
 
@@ -54,17 +58,7 @@ jobs:
           chmod 600 .env
 
           if [ ! -s .env ]; then
-            echo ".env was not created or is empty"
-            exit 1
-          fi
-
-          if ! awk '
-            /^[[:space:]]*($|#)/ { next }
-            /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=/ { next }
-            { invalid=1; exit }
-            END { exit invalid }
-          ' .env; then
-            echo ".env contains an invalid line; expected KEY=VALUE entries"
+            echo "ERROR: .env file was not created or is empty"
             exit 1
           fi
 
@@ -75,27 +69,112 @@ jobs:
             DEFAULT_DB_PASSWORD \
             DEFAULT_DB_HOST \
             DEFAULT_DB_PORT \
-            ACCESS_TOKEN_EXPIRE_TIME_IN_MIN \
-            REFRESH_TOKEN_EXPIRE_TIME_IN_MIN \
             REDIS_HOST \
-            REDIS_PORT; do
+            REDIS_PORT \
+            REDIS_CHANNEL \
+            ACCESS_TOKEN_EXPIRE_TIME_IN_MIN \
+            REFRESH_TOKEN_EXPIRE_TIME_IN_MIN; do
             if ! grep -Eq "^[[:space:]]*${required_key}=" .env; then
-              echo "Missing required .env key: ${required_key}"
+              echo "ERROR: Missing required .env key: ${required_key}"
               exit 1
             fi
           done
 
-          # Don't `git clean -ffdx`: it would try to delete the bind-mounted
-          # ./media dir, whose contents are created by the root-running
-          # containers and can't be removed by the runner user (EACCES). It
-          # would also wipe user uploads on every deploy. Leave the workspace
-          # untracked files (media/) in place.
-          git fetch origin main
-          git checkout main
-          git pull --ff-only origin main
+          echo ".env file created successfully"
+      
+      # ============================================================
+      # 3. Build and start services with Docker Compose
+      # ============================================================
+      - name: Build and start services with Docker Compose
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
 
+        run: |
+          set -Eeuo pipefail
+
+          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
+          cd "${DEPLOY_PATH}"
+
+          echo "Checking Docker Compose configuration..."
           sudo -n docker compose config --quiet
+
+          echo "Building and starting services..."
           sudo -n docker compose up -d --build --remove-orphans
+
+
+      # ============================================================
+      # 4. Wait for services to be ready
+      # ============================================================
+      - name: Wait for services to be ready
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+
+        run: |
+          set -eu
+
+          cd "${DEPLOY_PATH}"
+
+          echo "Waiting for services to start..."
+
+          sleep 15
+
+          echo "Current service status:"
+
           sudo -n docker compose ps
-          sudo -n docker compose logs --tail=200
-          sudo -n docker image prune -f
+
+
+      # ============================================================
+      # 5. Run database migrations
+      # ============================================================
+      - name: Run database migrations
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+
+        run: |
+          set -Eeuo pipefail
+
+          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
+          cd "${DEPLOY_PATH}"
+
+          echo "Running shared tenant migrations..."
+          sudo -n docker compose exec -T web python manage.py migrate_schemas --shared
+
+          echo "Running tenant migrations..."
+          sudo -n docker compose exec -T web python manage.py migrate_schemas --tenant
+
+          echo "Database migrations completed successfully"
+
+
+      # ============================================================
+      # 6. Check service status
+      # ============================================================
+      - name: Check service status
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+
+        run: |
+          set -eu
+
+          cd "${DEPLOY_PATH}"
+
+          echo "======================================"
+          echo "Docker Compose Service Status"
+          echo "======================================"
+
+          sudo -n docker compose ps
+
+          echo ""
+          echo "======================================"
+          echo "Docker Compose Logs"
+          echo "======================================"
+
+          sudo -n docker compose logs --tail=100
+
+          echo ""
+          echo "======================================"
+          echo "Cleaning unused Docker images"
+          echo "======================================"
+
+          sudo -n docker image prune -f 
+
+      
