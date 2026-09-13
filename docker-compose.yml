@@ -68,7 +68,7 @@ services:
           "curl",
           "-f",
           "-H",
-          "Host: 13.233.100.172",
+          "Host:3.108.219.102",
           "http://127.0.0.1:8000/health/"
         ]
       interval: 30s
