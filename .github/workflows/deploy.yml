@@ -30,7 +30,7 @@ jobs:
       # ============================================================
       - name: Create environment file
         run: |
-          cat > "$ENV_TMP" << 'EOF'
+          cat > .env << 'EOF'
 
           SECRET_KEY=${{ secrets.SECRET_KEY }}
           ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
