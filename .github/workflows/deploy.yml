@@ -125,7 +125,7 @@ jobs:
       - name: Build and start services with Docker Compose
         run: |
           echo "Building and starting services..."
-          sudo -n docker compose up -d --build --remove-orphans
+          sudo -n docker compose up -d --build
 
 
       # ============================================================
