@@ -6,12 +6,8 @@ on:
       - main
   workflow_dispatch:
 
-concurrency:
-  group: production-deploy
-  cancel-in-progress: false
-
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: self-hosted
 
     steps:
@@ -23,60 +19,17 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}" 2>/dev/null || true
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
         with:
           # Never run git clean here: media/ contains user uploads.
           clean: false
           fetch-depth: 0
 
       # ============================================================
-      # 2. Copy latest code to production directory
-      # ============================================================
-      - name: Sync latest code to production
-        env:
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-
-        run: |
-          set -Eeuo pipefail
-
-          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
-
-          echo "GitHub workspace:"
-          echo "${GITHUB_WORKSPACE}"
-
-          echo "Production directory:"
-          echo "${DEPLOY_PATH}"
-
-          if [ ! -d "${DEPLOY_PATH}" ]; then
-            echo "Creating production directory..."
-            sudo -n mkdir -p "${DEPLOY_PATH}"
-          fi
-
-          echo "Syncing latest code..."
-
-          sudo -n rsync -a \
-            --exclude='.git/' \
-            --exclude='.env' \
-            --exclude='media/' \
-            --exclude='static/' \
-            "${GITHUB_WORKSPACE}/" \
-            "${DEPLOY_PATH}/"
-
-          echo "Latest code copied successfully."
-
-      # ============================================================
-      # 3. Create environment file
+      # 2. Create environment file
       # ============================================================
       - name: Create environment file
-        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
-          set -Eeuo pipefail
-
-          # Build in a temp file, then install it: an existing .env in the
-          # deploy directory may be root-owned from an earlier sudo run.
-          ENV_TMP="$(mktemp)"
-          trap 'rm -f "$ENV_TMP"' EXIT
-
           cat > "$ENV_TMP" << 'EOF'
 
           SECRET_KEY=${{ secrets.SECRET_KEY }}
@@ -142,8 +95,6 @@ jobs:
           echo "BRIDGE_SIGNING_PRIVATE_KEY_B64=$(tr -d '[:space:]' < "$BRIDGE_KEY_TMP")" >> "$ENV_TMP"
           rm -f "$BRIDGE_KEY_TMP"
 
-          sudo -n install -m 600 -o "$(id -u)" -g "$(id -g)" "$ENV_TMP" .env
-
           # Verify .env file exists and has content
           if [ ! -f ".env" ] || [ ! -s ".env" ]; then
             echo "Error: .env file missing or empty!"
@@ -157,10 +108,9 @@ jobs:
       # 4. Build and start services with Docker Compose
       # ============================================================
       - name: Build and start services with Docker Compose
-        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
           echo "Building and starting services..."
-          sudo -n docker compose up -d --build
+          sudo docker compose up -d --build
 
 
       # ============================================================
@@ -173,17 +123,16 @@ jobs:
           sleep 15
 
           echo "Checking if services are running..."
-          sudo -n docker compose ps
+          sudo docker compose ps
 
           echo "Checking service logs..."
-          sudo -n docker compose logs web --tail=50
+          sudo docker compose logs web --tail=50
 
 
       # ============================================================
       # 6. Run database migrations
       # ============================================================
       - name: Run database migrations
-        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
           echo "Database migrations are handled in the container startup script"
           echo "Checking if migrations completed successfully..."
@@ -193,26 +142,25 @@ jobs:
       # 7. Check service status
       # ============================================================
       - name: Check service status
-        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
           echo "======================================"
           echo "Docker Compose Service Status"
           echo "======================================"
 
-          sudo -n docker compose ps
+          sudo docker compose ps
 
           echo ""
           echo "======================================"
           echo "Docker Compose Logs"
           echo "======================================"
 
-          sudo -n docker compose logs --tail=100
+          sudo docker compose logs --tail=100
 
           echo ""
           echo "======================================"
           echo "Cleaning unused Docker images"
           echo "======================================"
 
-          sudo -n docker image prune -f 
+          sudo docker image prune -f 
 
       
