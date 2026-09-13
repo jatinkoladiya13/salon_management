@@ -37,16 +37,16 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
 
         run: |
-          # set -Eeuo pipefail
+          set -Eeuo pipefail
 
-          # : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
+          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
 
-          # if [ ! -d "${DEPLOY_PATH}" ]; then
-          #   echo "Deploy directory does not exist: ${DEPLOY_PATH}"
-          #   sudo -n mkdir -p "${DEPLOY_PATH}"
-          # fi
+          if [ ! -d "${DEPLOY_PATH}" ]; then
+            echo "Deploy directory does not exist: ${DEPLOY_PATH}"
+            sudo -n mkdir -p "${DEPLOY_PATH}"
+          fi
 
-          # cd "${DEPLOY_PATH}"
+          cd "${DEPLOY_PATH}"
 
           cat > .env << 'EOF'
         
