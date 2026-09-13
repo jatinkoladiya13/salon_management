@@ -79,6 +79,11 @@ class User(AbstractUser):
 
     gender = models.CharField(choices=GENDER_CHOICE, max_length=10, default="male")
     date_of_birth = models.DateField(null=True, blank=True)
+    profile_image = models.ImageField(
+        upload_to="user_profiles/",
+        blank=True,
+        null=True,
+    )
 
     address = models.CharField(max_length=255, blank=True, null=True)
 

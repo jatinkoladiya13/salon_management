@@ -90,6 +90,9 @@ jobs:
           EMAIL_USE_TLS=${{ secrets.EMAIL_USE_TLS }}
           DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}
 
+          AWS_STORAGE_BUCKET_NAME=${{ secrets.AWS_STORAGE_BUCKET_NAME }}
+          AWS_S3_REGION_NAME=${{ secrets.AWS_S3_REGION_NAME }}
+
           EOF
 
           # CRITICAL: `base64` wraps at 76 cols by default, so the secret value

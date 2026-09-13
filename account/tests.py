@@ -1,9 +1,14 @@
 from unittest.mock import patch
 
+from io import BytesIO
+
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
+
+from PIL import Image
 
 from django_tenants.utils import schema_context
 
@@ -292,6 +297,30 @@ class UserManagementApiTests(TenantAPITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_profile_image_can_be_updated_without_touching_other_fields(self):
+        self.authenticate(self.customer)
+        self.grant(self.user_group, UPDATE_OWN_ACCOUNT_ONLY, status=True)
+
+        buffer = BytesIO()
+        Image.new("RGB", (10, 10), color="blue").save(buffer, format="PNG")
+        buffer.seek(0)
+        image = SimpleUploadedFile(
+            "profile.png",
+            buffer.read(),
+            content_type="image/png",
+        )
+
+        response = self.client.patch(
+            reverse("usermanage-manage-profile-picture", args=[self.customer.id]),
+            {"profile_image": image},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        with schema_context(self.tenant.schema_name):
+            self.customer.refresh_from_db()
+            self.assertIsNotNone(self.customer.profile_image)
 
     def test_only_a_tenant_admin_can_delete_a_user(self):
         with schema_context(self.tenant.schema_name):

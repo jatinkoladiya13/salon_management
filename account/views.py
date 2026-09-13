@@ -261,6 +261,8 @@ class UserView(ModelViewSet):
     def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:
             return UserCreateSerializer
+        if self.action == "manage_profile_picture":
+            return ProfileImageSerializer
         return super(UserView, self).get_serializer_class()
     
     def get_permissions(self):
@@ -270,6 +272,14 @@ class UserView(ModelViewSet):
         # get_permissions() without honouring them silently dropped those
         # checks - create_staff fell through to plain IsAuthenticated, letting
         # any signed-in customer promote themselves to Staff.
+        if self.action == "manage_profile_picture":
+            permission_classes = [
+                IsAuthenticated,
+                CustomPermission(UPDATE_USERS_ACCOUNT)
+                | CustomPermission(UPDATE_OWN_ACCOUNT_ONLY),
+            ]
+            return [permission() for permission in permission_classes]
+
         extra_actions = {
             action.__name__ for action in self.get_extra_actions()
         }
@@ -281,7 +291,6 @@ class UserView(ModelViewSet):
         schema_name = self.request.GET.get("schema_name")
         if schema_name:
             permission_classes += [IsPublicSchemaSuperUser]
-
 
         if self.action in ["list", "retrieve"]:
             permission_classes += [
@@ -296,19 +305,16 @@ class UserView(ModelViewSet):
             ]
 
         elif self.action in ["update", "partial_update"]:
-                permission_classes += [
-                    CustomPermission(UPDATE_USERS_ACCOUNT)
-                    | CustomPermission(UPDATE_OWN_ACCOUNT_ONLY)
-                ]  
+            permission_classes += [
+                CustomPermission(UPDATE_USERS_ACCOUNT)
+                | CustomPermission(UPDATE_OWN_ACCOUNT_ONLY)
+            ]
 
         elif self.action in ["destroy"]:
             permission_classes += [
                 CustomPermission(DELETE_USERS_ACCOUNT)
                 | CustomPermission(DELETE_OWN_ACCOUNT_ONLY)
             ]
-
-        elif self.action == "manage_profile_picture" and schema_name:
-            permission_classes.append(IsPublicSchemaSuperUser)
 
         return [permission() for permission in permission_classes]
     
@@ -339,7 +345,7 @@ class UserView(ModelViewSet):
                     groups__name=SUPERADMIN_GROUP_NAME,
                 )
 
-        elif self.action in ["update", "partial_update"]:
+        elif self.action in ["update", "partial_update", "manage_profile_picture"]:
             user_role = self.request.user.get_role
             can_update_users = is_permission(user_role, UPDATE_USERS_ACCOUNT)
             can_update_own_only = is_permission(user_role, UPDATE_OWN_ACCOUNT_ONLY)
@@ -401,6 +407,25 @@ class UserView(ModelViewSet):
         else:
             super().destroy(request, *args, **kwargs)
         response = rh.ResponseMsg({}, False, "user deleted Successfully!!!")
+        return Response(status=status.HTTP_200_OK, data=response.response)
+
+    @action(
+        methods=["PATCH", "PUT"],
+        detail=True,
+        serializer_class=ProfileImageSerializer,
+        url_path="manage-profile-picture",
+    )
+    def manage_profile_picture(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        response = rh.ResponseMsg(
+            serializer.data,
+            False,
+            "Profile image updated Successfully!!",
+        )
         return Response(status=status.HTTP_200_OK, data=response.response)
 
     @action(

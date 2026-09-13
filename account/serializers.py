@@ -234,6 +234,13 @@ class UserSerializer(serializers.ModelSerializer):
         group = obj.groups.first()
         return group.name if group else None
 
+
+class ProfileImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ("profile_image",)
+
+
 class UserCreateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(validators=[validate_password])
 
@@ -250,6 +257,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
             "last_name",
             "date_of_birth",
             "mobile",
+            "profile_image",
         )
 
     def to_representation(self, instance):
@@ -334,6 +342,7 @@ class StaffCreateSerializer(serializers.ModelSerializer):
             "last_name",
             "date_of_birth",
             "mobile",
+            "profile_image",
         )
 
     def to_representation(self, instance):
