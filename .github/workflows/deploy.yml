@@ -92,7 +92,7 @@ jobs:
           cat > "$BRIDGE_KEY_TMP" << 'B64EOF'
           ${{ secrets.BRIDGE_SIGNING_PRIVATE_KEY_B64 }}
           B64EOF
-          echo "BRIDGE_SIGNING_PRIVATE_KEY_B64=$(tr -d '[:space:]' < "$BRIDGE_KEY_TMP")" >> "$ENV_TMP"
+          echo "BRIDGE_SIGNING_PRIVATE_KEY_B64=$(tr -d '[:space:]' < "$BRIDGE_KEY_TMP")" >> .env
           rm -f "$BRIDGE_KEY_TMP"
 
           # Verify .env file exists and has content
@@ -117,7 +117,6 @@ jobs:
       # 5. Wait for services to be ready
       # ============================================================
       - name: Wait for services to be ready
-        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
           echo "Waiting for services to start..."
           sleep 15
