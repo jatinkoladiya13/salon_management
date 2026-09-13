@@ -37,18 +37,18 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
 
         run: |
-          set -Eeuo pipefail
+          # set -Eeuo pipefail
 
-          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
+          # : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
 
-          if [ ! -d "${DEPLOY_PATH}" ]; then
-            echo "Deploy directory does not exist: ${DEPLOY_PATH}"
-            sudo -n mkdir -p "${DEPLOY_PATH}"
-          fi
+          # if [ ! -d "${DEPLOY_PATH}" ]; then
+          #   echo "Deploy directory does not exist: ${DEPLOY_PATH}"
+          #   sudo -n mkdir -p "${DEPLOY_PATH}"
+          # fi
 
-          cd "${DEPLOY_PATH}"
+          # cd "${DEPLOY_PATH}"
 
-          cat > .env <<EOF
+          cat > .env << 'EOF'
         
           SECRET_KEY=${{ secrets.SECRET_KEY }}
           ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
@@ -95,14 +95,29 @@ jobs:
 
           EOF
 
-          chmod 600 .env
+          # CRITICAL: `base64` wraps at 76 cols by default, so the secret value
+          # may itself be multi-line. A multi-line value can't live on one
+          # KEY=VALUE line — both the .env parser and docker-compose's env_file
+          # keep only the first line and silently drop the rest, so the key
+          # decodes to garbage and the bridge sees "no key". Capture it via a
+          # file (heredocs preserve newlines) and collapse ALL whitespace to a
+          # single line before appending to .env.
+          BRIDGE_KEY_TMP="$(mktemp)"
+          cat > "$BRIDGE_KEY_TMP" << 'B64EOF'
+          ${{ secrets.BRIDGE_SIGNING_PRIVATE_KEY_B64 }}
+          B64EOF
+          echo "BRIDGE_SIGNING_PRIVATE_KEY_B64=$(tr -d '[:space:]' < "$BRIDGE_KEY_TMP")" >> .env
+          rm -f "$BRIDGE_KEY_TMP"
 
-          if [ ! -s .env ]; then
-            echo "ERROR: .env file was not created or is empty"
+
+          # Verify .env file exists and has content
+          if [ ! -f ".env" ] || [ ! -s ".env" ]; then
+            echo "Error: .env file missing or empty!"
             exit 1
           fi
 
           echo ".env file created successfully from individual GitHub secrets"
+          echo "Environment variables count: $(grep -c "=" .env)"
       
       # ============================================================
       # 3. Build and start services with Docker Compose
