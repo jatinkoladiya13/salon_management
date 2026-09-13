@@ -78,6 +78,7 @@ jobs:
           SUPERUSER_PASSWORD=${{ secrets.SUPERUSER_PASSWORD }}
 
           ELASTIC_CLOUD_ID=${{ secrets.ELASTIC_CLOUD_ID }}
+          ELASTIC_API_KEY =${{ secrets.ELASTIC_API_KEY }}
           ELASTIC_USERNAME=${{ secrets.ELASTIC_USERNAME }}
           ELASTIC_PASSWORD=${{ secrets.ELASTIC_PASSWORD }}
 
