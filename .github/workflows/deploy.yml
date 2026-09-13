@@ -14,11 +14,6 @@ jobs:
   deploy:
     runs-on: self-hosted
 
-    # Ensures all subsequent run blocks execute inside your deploy directory
-    defaults:
-      run:
-        working-directory: ${{ vars.DEPLOY_PATH }}   
-
     steps:
       # ============================================================
       # 1. Checkout code
@@ -35,21 +30,59 @@ jobs:
           fetch-depth: 0
 
       # ============================================================
-      # 2. Create environment file
+      # 2. Copy latest code to production directory
       # ============================================================
-      - name: Create environment file
+      - name: Sync latest code to production
         env:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
 
         run: |
           set -Eeuo pipefail
 
-          cat > .env << 'EOF'
-        
+          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
+
+          echo "GitHub workspace:"
+          echo "${GITHUB_WORKSPACE}"
+
+          echo "Production directory:"
+          echo "${DEPLOY_PATH}"
+
+          if [ ! -d "${DEPLOY_PATH}" ]; then
+            echo "Creating production directory..."
+            sudo -n mkdir -p "${DEPLOY_PATH}"
+          fi
+
+          echo "Syncing latest code..."
+
+          sudo -n rsync -a \
+            --exclude='.git/' \
+            --exclude='.env' \
+            --exclude='media/' \
+            --exclude='static/' \
+            "${GITHUB_WORKSPACE}/" \
+            "${DEPLOY_PATH}/"
+
+          echo "Latest code copied successfully."
+
+      # ============================================================
+      # 3. Create environment file
+      # ============================================================
+      - name: Create environment file
+        working-directory: ${{ vars.DEPLOY_PATH }}
+        run: |
+          set -Eeuo pipefail
+
+          # Build in a temp file, then install it: an existing .env in the
+          # deploy directory may be root-owned from an earlier sudo run.
+          ENV_TMP="$(mktemp)"
+          trap 'rm -f "$ENV_TMP"' EXIT
+
+          cat > "$ENV_TMP" << 'EOF'
+
           SECRET_KEY=${{ secrets.SECRET_KEY }}
           ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
           CHANNELS_ALLOWED_ORIGINS=${{ secrets.CHANNELS_ALLOWED_ORIGINS }}
-          CHANNELS_ALLOW_MISSING_ORIGIN = ${{ secrets.CHANNELS_ALLOW_MISSING_ORIGIN }}        
+          CHANNELS_ALLOW_MISSING_ORIGIN=${{ secrets.CHANNELS_ALLOW_MISSING_ORIGIN }}
           DEBUG=${{ secrets.DEBUG }}
 
           DEFAULT_DB_NAME=${{ secrets.DEFAULT_DB_NAME }}
@@ -74,7 +107,7 @@ jobs:
           SUPERUSER_PASSWORD=${{ secrets.SUPERUSER_PASSWORD }}
 
           ELASTIC_CLOUD_ID=${{ secrets.ELASTIC_CLOUD_ID }}
-          ELASTIC_API_KEY =${{ secrets.ELASTIC_API_KEY }}
+          ELASTIC_API_KEY=${{ secrets.ELASTIC_API_KEY }}
           ELASTIC_USERNAME=${{ secrets.ELASTIC_USERNAME }}
           ELASTIC_PASSWORD=${{ secrets.ELASTIC_PASSWORD }}
 
@@ -106,9 +139,10 @@ jobs:
           cat > "$BRIDGE_KEY_TMP" << 'B64EOF'
           ${{ secrets.BRIDGE_SIGNING_PRIVATE_KEY_B64 }}
           B64EOF
-          echo "BRIDGE_SIGNING_PRIVATE_KEY_B64=$(tr -d '[:space:]' < "$BRIDGE_KEY_TMP")" >> .env
+          echo "BRIDGE_SIGNING_PRIVATE_KEY_B64=$(tr -d '[:space:]' < "$BRIDGE_KEY_TMP")" >> "$ENV_TMP"
           rm -f "$BRIDGE_KEY_TMP"
 
+          sudo -n install -m 600 -o "$(id -u)" -g "$(id -g)" "$ENV_TMP" .env
 
           # Verify .env file exists and has content
           if [ ! -f ".env" ] || [ ! -s ".env" ]; then
@@ -120,18 +154,20 @@ jobs:
           echo "Environment variables count: $(grep -c "=" .env)"
       
       # ============================================================
-      # 3. Build and start services with Docker Compose
+      # 4. Build and start services with Docker Compose
       # ============================================================
       - name: Build and start services with Docker Compose
+        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
           echo "Building and starting services..."
           sudo -n docker compose up -d --build
 
 
       # ============================================================
-      # 4. Wait for services to be ready
+      # 5. Wait for services to be ready
       # ============================================================
       - name: Wait for services to be ready
+        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
           echo "Waiting for services to start..."
           sleep 15
@@ -140,22 +176,24 @@ jobs:
           sudo -n docker compose ps
 
           echo "Checking service logs..."
-          sudo docker compose logs web --tail=50
+          sudo -n docker compose logs web --tail=50
 
 
       # ============================================================
-      # 5. Run database migrations
+      # 6. Run database migrations
       # ============================================================
       - name: Run database migrations
+        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
           echo "Database migrations are handled in the container startup script"
           echo "Checking if migrations completed successfully..."
           sleep 10
 
       # ============================================================
-      # 6. Check service status
+      # 7. Check service status
       # ============================================================
       - name: Check service status
+        working-directory: ${{ vars.DEPLOY_PATH }}
         run: |
           echo "======================================"
           echo "Docker Compose Service Status"
