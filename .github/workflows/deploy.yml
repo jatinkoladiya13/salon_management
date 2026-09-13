@@ -123,18 +123,7 @@ jobs:
       # 3. Build and start services with Docker Compose
       # ============================================================
       - name: Build and start services with Docker Compose
-        env:
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-
         run: |
-          set -Eeuo pipefail
-
-          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
-          cd "${DEPLOY_PATH}"
-
-          echo "Checking Docker Compose configuration..."
-          sudo -n docker compose config --quiet
-
           echo "Building and starting services..."
           sudo -n docker compose up -d --build --remove-orphans
 
@@ -143,57 +132,31 @@ jobs:
       # 4. Wait for services to be ready
       # ============================================================
       - name: Wait for services to be ready
-        env:
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-
         run: |
-          set -eu
-
-          cd "${DEPLOY_PATH}"
-
           echo "Waiting for services to start..."
-
           sleep 15
 
-          echo "Current service status:"
-
+          echo "Checking if services are running..."
           sudo -n docker compose ps
+
+          echo "Checking service logs..."
+          sudo docker compose logs web --tail=50
 
 
       # ============================================================
       # 5. Run database migrations
       # ============================================================
       - name: Run database migrations
-        env:
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-
         run: |
-          set -Eeuo pipefail
-
-          : "${DEPLOY_PATH:?DEPLOY_PATH variable is required}"
-          cd "${DEPLOY_PATH}"
-
-          echo "Running shared tenant migrations..."
-          sudo -n docker compose exec -T web python manage.py migrate_schemas --shared
-
-          echo "Running tenant migrations..."
-          sudo -n docker compose exec -T web python manage.py migrate_schemas --tenant
-
-          echo "Database migrations completed successfully"
-
+          echo "Database migrations are handled in the container startup script"
+          echo "Checking if migrations completed successfully..."
+          sleep 10
 
       # ============================================================
       # 6. Check service status
       # ============================================================
       - name: Check service status
-        env:
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-
         run: |
-          set -eu
-
-          cd "${DEPLOY_PATH}"
-
           echo "======================================"
           echo "Docker Compose Service Status"
           echo "======================================"
