@@ -1,0 +1,35 @@
+#This is run in shell after create template schema 
+    >>> from tenant.models import Tenant, Domain
+    >>> t = Tenant.objects.create(
+    ...     name="Template Schema",
+    ...     schema_name="template_schema",
+    ...     subscription_status="active"
+    ... )
+    >>> Domain.objects.create(
+    ...     domain="template.localhost",
+    ...     tenant=t,
+    ...     is_primary=True
+    ... )
+    > from django.db import connection, transaction
+    >>> cursor = connection.cursor()
+    >>> cursor.execute('CREATE SCHEMA IF NOT EXISTS template_schema;')
+    >>> transaction.commit()
+    >>> print("Done!")
+
+    #run 
+    python manage.py migrate_schemas --schema=template_schema
+    
+    now compelete the template schema
+
+# Windows run celery worker 
+celery -A salon_management worker -l info --pool=solo
+
+# Redis Beat run
+celery -A project beat -l info
+
+#
+1. superuser (All Access) 
+
+2. TenantAdmin (All access in schema)
+3. Staff (Access given by tenantadmin)
+4. User(Customer) 
